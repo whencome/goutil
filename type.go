@@ -137,6 +137,8 @@ func GetS(v interface{}) S {
 				s = append(s, d)
 			}
 		}
+	default:
+		s = S([]interface{}{v})
 	}
 	return s
 }
