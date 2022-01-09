@@ -11,8 +11,8 @@ import (
 )
 
 /////////////////////// COMMON FUNCS ////////////////////////
-// GetM 将给定V转换成一个M对象，如果不支持转换，则直接返回空的M值
-func GetM(v interface{}) M {
+// MVal 将给定V转换成一个M对象，如果不支持转换，则直接返回空的M值
+func MVal(v interface{}) M {
 	var nm M = M{}
 	switch v.(type) {
 	case map[string]interface{}:
@@ -82,8 +82,8 @@ func GetM(v interface{}) M {
 	return nm
 }
 
-// GetS 将v转换为一个Slice值，如果不支持转换，则返回空，使用者需要预先确认值类型
-func GetS(v interface{}) S {
+// SVal 将v转换为一个Slice值，如果不支持转换，则返回空，使用者需要预先确认值类型
+func SVal(v interface{}) S {
 	s := S{}
 	switch v.(type) {
 	case []interface{}:
@@ -183,7 +183,7 @@ func (p KVPairs) Add(k, v string) {
 // FilterEmptyValueAndKeys 去掉列表中值为空以及指定字段的值
 func (p KVPairs) FilterEmptyValueAndKeys(keys ...string) KVPairs {
 	newKV := KVPairs{}
-	sKeys := GetS(keys)
+	sKeys := SVal(keys)
 	for _, kv := range p {
 		if kv.V != "" && !sKeys.Contains(kv.K) {
 			newKV = append(newKV, kv)
@@ -406,23 +406,32 @@ func (m M) GetFloat32(k string) float32 {
 }
 
 // GetM 获取指定k的值
-func (m M) GetM(k string) M {
+func (m M) MVal(k string) M {
 	v, ok := m.Get(k)
 	if !ok {
 		return nil
 	}
-	nm := GetM(v)
+	nm := MVal(v)
 	return nm
 }
 
 // GetS 获取指定k的Slice值
-func (m M) GetS(k string) S {
+func (m M) SVal(k string) S {
 	v, ok := m.Get(k)
 	if !ok {
 		return nil
 	}
-	s := GetS(v)
+	s := SVal(v)
 	return s
+}
+
+// 转换为url.Values
+func (m M) UrlValues() url.Values {
+	uv := url.Values{}
+	for k, v := range m {
+		uv[k] = SVal(v).String()
+	}
+	return uv
 }
 
 // Map 获取原始数据
@@ -507,7 +516,7 @@ func (s S) M() []M {
 	}
 	v := make([]M, size)
 	for i, s1 := range s {
-		v[i] = GetM(s1)
+		v[i] = MVal(s1)
 	}
 	return v
 }

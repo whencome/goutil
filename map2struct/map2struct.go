@@ -186,26 +186,26 @@ func getMapData(data interface{}) (gotil.M, error) {
 	return retData, nil
 }
 
-// MarshalTag 将map数据（data）填充到给定的结构体（obj）中，根据指定的tag解析与转换
-func MarshalTag(dstObj interface{}, srcData interface{}, tag string) error {
+// ToStructByTag 将map数据（data）填充到给定的结构体（obj）中，根据指定的tag解析与转换
+func ToStructByTag(dstObj interface{}, mapData interface{}, tag string) error {
 	c := newConverter(dstObj, tag)
-	return c.ToStruct(srcData)
+	return c.ToStruct(mapData)
 }
 
-// Marshal 将map数据（data）填充到给定的结构体（obj）中，根据指定的tag解析与转换
-func Marshal(dstObj interface{}, srcData interface{}) error {
+// ToStruct 将map数据（data）填充到给定的结构体（obj）中，根据指定的tag解析与转换
+func ToStruct(dstObj interface{}, mapData interface{}) error {
 	c := newConverter(dstObj, "map2struct")
-	return c.ToStruct(srcData)
+	return c.ToStruct(mapData)
 }
 
-// UnmarshalTag 将struct数据解析为map
-func UnmarshalTag(dstObj interface{}, tag string) gotil.M {
+// ToMapByTag 将struct数据解析为map
+func ToMapByTag(dstObj interface{}, tag string) gotil.M {
 	c := newConverter(dstObj, tag)
 	return c.ToMap()
 }
 
-// Unmarshal 将struct数据解析为map
-func Unmarshal(dstObj interface{}) gotil.M {
+// ToMap 将struct数据解析为map
+func ToMap(dstObj interface{}) gotil.M {
 	c := newConverter(dstObj, "map2struct")
 	return c.ToMap()
 }
