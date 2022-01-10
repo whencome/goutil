@@ -2,12 +2,11 @@ package httputil
 
 import (
 	"fmt"
-	"github.com/whencome/gotil"
 	"github.com/whencome/xlog"
+	"io"
 	"io/ioutil"
 	"net/http"
-	"net/url"
-	"strings"
+	"os"
 )
 
 const (
@@ -123,14 +122,29 @@ func CustomPostRaw(t *http.Transport, url string, params []byte, timeout int) ([
 	return request(client, MethodPOST, url, params)
 }
 
-// 构造请求参数信息
-func BuildQuery(data map[string]interface{}) string {
-	if data == nil || len(data) == 0 {
-		return ""
+// DownloadFile 下载文件
+func DownloadFile(url string, filepath string) error {
+	tmpFile := filepath + ".tmp"
+	out, err := os.Create(tmpFile)
+	if err != nil {
+		return err
 	}
-	params := make([]string, 0)
-	for k, v := range data {
-		params = append(params, fmt.Sprintf("%s=%s", k, url.QueryEscape(gotil.String(v))))
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
 	}
-	return strings.Join(params, "&")
+	defer resp.Body.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	if err != nil {
+		return err
+	}
+
+	out.Close()
+	err = os.Rename(tmpFile, filepath)
+	if err != nil {
+		return err
+	}
+	return nil
 }

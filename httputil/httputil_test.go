@@ -24,3 +24,12 @@ func TestGet(t *testing.T) {
 	}
 	t.Log(string(body))
 }
+
+func TestDownloadFile(t *testing.T) {
+	url := "https://p5.itc.cn/q_70/images01/20210608/289a9f603c9e4b76ab3ee69f20dacea3.jpeg"
+	dstFile := "D:/download/1001.jpg"
+	err := DownloadFile(url, dstFile)
+	if err != nil {
+		t.Fail()
+	}
+}
