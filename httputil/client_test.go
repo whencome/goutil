@@ -1,11 +1,11 @@
-package httpclient
+package httputil
 
 import (
 	"io/ioutil"
 	"testing"
 )
 
-func TestPost(t *testing.T) {
+func TestGet(t *testing.T) {
 	url := "https://cn.bing.com/search"
 	client := NewHttpClient()
 	client.SetDebug(true)
