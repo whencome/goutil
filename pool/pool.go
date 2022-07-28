@@ -32,11 +32,11 @@ type WorkerPool struct {
 	WorkerQueue chan chan Job
 }
 
-func NewWorkerPool(size int) *WorkerPool {
+func NewWorkerPool(workerSize, queueSize int) *WorkerPool {
 	return &WorkerPool{
-		size:        size,
+		size:        workerSize,
 		JobQueue:    make(chan Job),
-		WorkerQueue: make(chan chan Job, size),
+		WorkerQueue: make(chan chan Job, queueSize),
 	}
 }
 
