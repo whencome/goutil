@@ -5,142 +5,46 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"reflect"
 	"sort"
-	"strconv"
 	"strings"
 )
 
 /////////////////////// COMMON FUNCS ////////////////////////
+
 // MVal 将给定V转换成一个M对象，如果不支持转换，则直接返回空的M值
 func MVal(v interface{}) M {
-	var nm M = M{}
-	switch v.(type) {
-	case map[string]interface{}:
-		mv, _ := v.(map[string]interface{})
-		if mv != nil {
-			nm = M(mv)
-		}
-	case map[string]string:
-		mv, _ := v.(map[string]string)
-		if len(mv) > 0 {
-			for f, d := range mv {
-				nm[f] = d
-			}
-		}
-	case map[string]int:
-		mv, _ := v.(map[string]int)
-		if len(mv) > 0 {
-			for f, d := range mv {
-				nm[f] = d
-			}
-		}
-	case map[string]int64:
-		mv, _ := v.(map[string]int64)
-		if len(mv) > 0 {
-			for f, d := range mv {
-				nm[f] = d
-			}
-		}
-	case map[string]uint:
-		mv, _ := v.(map[string]uint)
-		if len(mv) > 0 {
-			for f, d := range mv {
-				nm[f] = d
-			}
-		}
-	case map[string]uint64:
-		mv, _ := v.(map[string]uint64)
-		if len(mv) > 0 {
-			for f, d := range mv {
-				nm[f] = d
-			}
-		}
-	case map[string]float32:
-		mv, _ := v.(map[string]float32)
-		if len(mv) > 0 {
-			for f, d := range mv {
-				nm[f] = d
-			}
-		}
-	case map[string]float64:
-		mv, _ := v.(map[string]float64)
-		if len(mv) > 0 {
-			for f, d := range mv {
-				nm[f] = d
-			}
-		}
-	case map[string]bool:
-		mv, _ := v.(map[string]bool)
-		if len(mv) > 0 {
-			for f, d := range mv {
-				nm[f] = d
-			}
-		}
-	case string:
-		_ = json.Unmarshal([]byte(v.(string)), &nm)
+	if v == nil {
+		return M{}
 	}
-	return nm
+	// 检查是否可以直接进行类型转换
+	if mv, ok := v.(M); ok {
+		return mv
+	}
+	// 使用反射进行类型检查
+	mv := M{}
+	value := reflect.ValueOf(v)
+	if value.Kind() == reflect.Map {
+		for _, k := range value.MapKeys() {
+			mv[k.String()] = value.MapIndex(k).Interface()
+		}
+	}
+	return mv
 }
 
 // SVal 将v转换为一个Slice值，如果不支持转换，则返回空，使用者需要预先确认值类型
 func SVal(v interface{}) S {
-	s := S{}
-	switch v.(type) {
-	case []interface{}:
-		s = S(v.([]interface{}))
-	case []string:
-		sv, _ := v.([]string)
-		if len(sv) > 0 {
-			for _, d := range sv {
-				s = append(s, d)
-			}
-		}
-	case []int:
-		iv, _ := v.([]int)
-		if len(iv) > 0 {
-			for _, d := range iv {
-				s = append(s, d)
-			}
-		}
-	case []int64:
-		iv, _ := v.([]int64)
-		if len(iv) > 0 {
-			for _, d := range iv {
-				s = append(s, d)
-			}
-		}
-	case []uint:
-		iv, _ := v.([]uint)
-		if len(iv) > 0 {
-			for _, d := range iv {
-				s = append(s, d)
-			}
-		}
-	case []uint64:
-		iv, _ := v.([]uint64)
-		if len(iv) > 0 {
-			for _, d := range iv {
-				s = append(s, d)
-			}
-		}
-	case []float32:
-		fv, _ := v.([]float32)
-		if len(fv) > 0 {
-			for _, d := range fv {
-				s = append(s, d)
-			}
-		}
-	case []float64:
-		fv, _ := v.([]float64)
-		if len(fv) > 0 {
-			for _, d := range fv {
-				s = append(s, d)
-			}
-		}
-	default:
-		s = S([]interface{}{v})
+	sv := S{}
+	if v == nil {
+		return sv
 	}
-	return s
+	value := reflect.ValueOf(v)
+	if value.Kind() == reflect.Slice || value.Kind() == reflect.Array {
+		for i := 0; i < value.Len(); i++ {
+			sv = append(sv, value.Index(i).Interface())
+		}
+	}
+	return sv
 }
 
 //////////////////// TYPE OF KVPairs  ///////////////////////
@@ -259,7 +163,8 @@ func Map2KVPairs(params map[string]string) KVPairs {
 }
 
 /////////////////////// TYPE OF M ///////////////////////////
-// 常用的map类型
+
+// M 常用的map类型
 type M map[string]interface{}
 
 // Pairs 将M转换为KVPairs
@@ -483,7 +388,8 @@ func (m M) Del(k string) {
 }
 
 /////////////////////// TYPE OF S ///////////////////////////
-// 常用的slice类型
+
+// S 常用的slice类型
 type S []interface{}
 
 // 从json中加载数据
@@ -594,7 +500,7 @@ func (s S) String() []string {
 	return v
 }
 
-// 过滤
+// Filter 过滤，过滤掉slice中的空值对象
 func (s S) Filter() {
 	newS := S{}
 	for _, v := range s {
@@ -606,8 +512,9 @@ func (s S) Filter() {
 	s = newS
 }
 
-// 包含检查
-// 注意：此方法可能存在一定风险
+// Contains 包含检查
+// 注意：1. 此方法因为在比较过程中进行了类型转换，因此存在风险；
+//      2. 建议在明确数据内容的场景下使用此方法.
 func (s S) Contains(v interface{}) bool {
 	if len(s) == 0 {
 		return false
@@ -615,305 +522,32 @@ func (s S) Contains(v interface{}) bool {
 	switch v.(type) {
 	case int, int64, int8, int16, int32:
 		dstV := Int64(v)
-		srcS := s.Int64()
-		for _, sv := range srcS {
-			if sv == dstV {
+		for _, sv := range s {
+			if Int64(sv) == dstV {
 				return true
 			}
 		}
 	case uint, uint64, uint8, uint16, uint32, bool:
 		dstV := Uint64(v)
-		srcS := s.Uint64()
-		for _, sv := range srcS {
-			if sv == dstV {
+		for _, sv := range s {
+			if Uint64(sv) == dstV {
 				return true
 			}
 		}
 	case float32, float64:
 		dstV := Float64(v)
-		srcS := s.Float64()
-		for _, sv := range srcS {
-			if sv == dstV {
+		for _, sv := range s {
+			if Float64(sv) == dstV {
 				return true
 			}
 		}
 	default:
 		dstV := v.(string)
-		srcS := s.String()
-		for _, sv := range srcS {
-			if sv == dstV {
+		for _, sv := range s {
+			if String(sv) == dstV {
 				return true
 			}
 		}
-	}
-	return false
-}
-
-/////////////////////// TYPE OF O（Object） ///////////////////////////
-// Value 定义一个通用的Value结构体，用于统一处理类型转换
-type obj struct {
-	v interface{}
-}
-type O obj
-
-func Object(v interface{}) O {
-	return O{
-		v: v,
-	}
-}
-
-// IsNil 判断值是否为nil
-func (o O) IsNil() bool {
-	return IsNil(o.v)
-}
-
-// IsEmpty 判断值是否为空
-func (o O) IsEmpty() bool {
-	return IsEmpty(o.v)
-}
-
-// String Get a string value of o
-func (o O) String() string {
-	var strVal = ""
-	switch o.v.(type) {
-	case int, int8, int16, int32, int64:
-		n := o.Int64()
-		strVal = strconv.FormatInt(n, 10)
-	case uint, uint8, uint16, uint32, uint64:
-		n := o.Uint64()
-		strVal = strconv.FormatUint(n, 10)
-	case float32:
-		strVal = strconv.FormatFloat(float64(o.v.(float32)), 'f', -1, 64)
-	case float64:
-		strVal = strconv.FormatFloat(o.v.(float64), 'f', -1, 64)
-	case string:
-		strVal = o.v.(string)
-	case []byte:
-		strVal = string(o.v.([]byte))
-	case []rune:
-		strVal = string(o.v.([]rune))
-	case bool:
-		strVal = strconv.FormatBool(o.v.(bool))
-	default:
-		if o.IsNil() {
-			strVal = ""
-		} else {
-			strVal = fmt.Sprint(o.v)
-		}
-	}
-	return strVal
-}
-
-// SqlValue 获取插入数据库需要的值
-func (o O) SqlValue() string {
-	var strVal = ""
-	switch o.v.(type) {
-	case int, int8, int16, int32, int64:
-		n := o.Int64()
-		strVal = strconv.FormatInt(n, 10)
-	case uint, uint8, uint16, uint32, uint64:
-		n := o.Uint64()
-		strVal = strconv.FormatUint(n, 10)
-	case float32:
-		strVal = strconv.FormatFloat(float64(o.v.(float32)), 'f', -1, 64)
-	case float64:
-		strVal = strconv.FormatFloat(o.v.(float64), 'f', -1, 64)
-	case string:
-		strVal = o.v.(string)
-	case []byte:
-		strVal = string(o.v.([]byte))
-	case []rune:
-		strVal = string(o.v.([]rune))
-	case bool:
-		strVal = "0"
-		if o.v.(bool) {
-			strVal = "1"
-		}
-	default:
-		strVal = fmt.Sprint(o.v)
-	}
-	// 对特殊字符进行处理
-	strVal = EscapeSqlValue(strVal)
-	// 返回结果
-	return strVal
-}
-
-// Int64 get int64 value
-func (o O) Int64() int64 {
-	switch o.v.(type) {
-	case int:
-		return int64(o.v.(int))
-	case int8:
-		return int64(o.v.(int8))
-	case int16:
-		return int64(o.v.(int16))
-	case int32:
-		return int64(o.v.(int32))
-	case int64:
-		return o.v.(int64)
-	case uint:
-		return int64(o.v.(uint))
-	case uint8:
-		return int64(o.v.(uint8))
-	case uint16:
-		return int64(o.v.(uint16))
-	case uint32:
-		return int64(o.v.(uint32))
-	case uint64:
-		return int64(o.v.(uint64))
-	case float32:
-		return int64(o.v.(float32))
-	case float64:
-		return int64(o.v.(float64))
-	case string:
-		n, err := strconv.ParseInt(string(o.v.(string)), 10, 64)
-		if err != nil {
-			return 0
-		}
-		return n
-	case []byte:
-		n, err := strconv.ParseInt(string(o.v.([]byte)), 10, 64)
-		if err != nil {
-			return 0
-		}
-		return n
-	case []rune:
-		n, err := strconv.ParseInt(string(o.v.([]rune)), 10, 64)
-		if err != nil {
-			return 0
-		}
-		return n
-	case bool:
-		intVal := int64(0)
-		if o.v.(bool) {
-			intVal = 1
-		}
-		return intVal
-	default:
-		return 0
-	}
-	return 0
-}
-
-// Uint64 get uint64 value
-func (o O) Uint64() uint64 {
-	switch o.v.(type) {
-	case int:
-		return uint64(o.v.(int))
-	case int8:
-		return uint64(o.v.(int8))
-	case int16:
-		return uint64(o.v.(int16))
-	case int32:
-		return uint64(o.v.(int32))
-	case int64:
-		return uint64(o.v.(int64))
-	case uint:
-		return uint64(o.v.(uint))
-	case uint8:
-		return uint64(o.v.(uint8))
-	case uint16:
-		return uint64(o.v.(uint16))
-	case uint32:
-		return uint64(o.v.(uint32))
-	case uint64:
-		return o.v.(uint64)
-	case float32:
-		return uint64(o.v.(float32))
-	case float64:
-		return uint64(o.v.(float64))
-	case string:
-		n, err := strconv.ParseUint(string(o.v.(string)), 10, 64)
-		if err != nil {
-			return 0
-		}
-		return n
-	case []byte:
-		n, err := strconv.ParseUint(string(o.v.([]byte)), 10, 64)
-		if err != nil {
-			return 0
-		}
-		return n
-	case []rune:
-		n, err := strconv.ParseUint(string(o.v.([]rune)), 10, 64)
-		if err != nil {
-			return 0
-		}
-		return n
-	case bool:
-		intVal := uint64(0)
-		if o.v.(bool) {
-			intVal = 1
-		}
-		return intVal
-	default:
-		return 0
-	}
-	return 0
-}
-
-// Float64 get float64 value
-func (o O) Float64() float64 {
-	switch o.v.(type) {
-	case int:
-		return float64(o.v.(int))
-	case int8:
-		return float64(o.v.(int8))
-	case int16:
-		return float64(o.v.(int16))
-	case int32:
-		return float64(o.v.(int32))
-	case int64:
-		return float64(o.v.(int64))
-	case uint:
-		return float64(o.v.(uint))
-	case uint8:
-		return float64(o.v.(uint8))
-	case uint16:
-		return float64(o.v.(uint16))
-	case uint32:
-		return float64(o.v.(uint32))
-	case uint64:
-		return float64(o.v.(uint64))
-	case float32:
-		return float64(o.v.(float32))
-	case float64:
-		return float64(o.v.(float64))
-	case string:
-		n, err := strconv.ParseFloat(string(o.v.(string)), 64)
-		if err != nil {
-			return 0
-		}
-		return n
-	case []byte:
-		n, err := strconv.ParseFloat(string(o.v.([]byte)), 64)
-		if err != nil {
-			return 0
-		}
-		return n
-	case []rune:
-		n, err := strconv.ParseFloat(string(o.v.([]rune)), 64)
-		if err != nil {
-			return 0
-		}
-		return n
-	case bool:
-		n := float64(0)
-		if o.v.(bool) {
-			n = 1
-		}
-		return n
-	default:
-		return 0
-	}
-	return 0
-}
-
-// Boolean get bool value
-func (o O) Boolean() bool {
-	v := o.Uint64()
-	if v > 0 {
-		return true
 	}
 	return false
 }
