@@ -10,7 +10,6 @@ import (
     "time"
 )
 
-// define errors
 var (
     ErrInvalidParamType = errors.New("can request with both key-value params and stream params")
 )
@@ -175,7 +174,7 @@ func (c *Client) WithBody(r io.Reader) *Client {
     return c
 }
 
-// WithRawParam 设置原始请求参数
+// ResetParam 重置请求参数
 func (c *Client) ResetParam() *Client {
     c.Params = url.Values{}
     c.RawParam = []byte{}
@@ -197,7 +196,7 @@ func (c *Client) WithRawParam(param []byte) *Client {
     return c
 }
 
-// SetParams 设置参数，设置之前会清空原有的参数
+// WithParams 设置参数，设置之前会清空原有的参数
 func (c *Client) WithParams(params map[string]interface{}) *Client {
     if c.Error != nil {
         return c
