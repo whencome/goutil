@@ -1,4 +1,7 @@
 github.com/axgle/mahonia v0.0.0-20180208002826-3358181d7394 h1:OYA+5W64v3OgClL+IrOD63t4i/RW7RqrAVl9LTZ9UqQ=
 github.com/axgle/mahonia v0.0.0-20180208002826-3358181d7394/go.mod h1:Q8n74mJTIgjX4RBBcHnJ05h//6/k6foqmgE45jTQtxg=
-github.com/whencome/xlog v1.2.8 h1:OQJ86C/Ng+2t3MddnZzuF9MdqFLd8U5+n7FIVGMzmzs=
+github.com/whencome/gotil v0.0.0-20230518085520-151e0192289b h1:KP9saYgr1MU/8XgRdyr45A7P9Dd2/me7fSB7h22GLGk=
+github.com/whencome/gotil v0.0.0-20230518085520-151e0192289b/go.mod h1:yoVLhq5eI7lTczl88g63CK3HRm4CvAS07pib6siCy5c=
 github.com/whencome/xlog v1.2.8/go.mod h1:xKSsdqf72zFOpLuctC7CxU6WKAK0OlDKaM2vEGsdu60=
+github.com/whencome/xlog v1.2.9 h1:X78pgGLt5Bluu3IN9ZjFL0dtWrYKlCwz0ZH9FoHqmLU=
+github.com/whencome/xlog v1.2.9/go.mod h1:xKSsdqf72zFOpLuctC7CxU6WKAK0OlDKaM2vEGsdu60=
