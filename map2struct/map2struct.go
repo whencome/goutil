@@ -100,6 +100,9 @@ func (c *converter) ToStruct(v interface{}) error {
         }
         // 设置值
         reflectField := rv.FieldByName(propName)
+        if !reflectField.CanSet() {
+            continue
+        }
         propTypeKind := reflectField.Kind()
         switch propTypeKind {
         case reflect.String:
