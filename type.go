@@ -8,9 +8,10 @@ import (
     "reflect"
     "sort"
     "strings"
+    "sync"
 )
 
-/////////////////////// COMMON FUNCS ////////////////////////
+// ///////////////////// COMMON FUNCS ////////////////////////
 
 // MVal 将给定V转换成一个M对象，如果不支持转换，则直接返回空的M值
 func MVal(v interface{}) M {
@@ -47,7 +48,27 @@ func SVal(v interface{}) S {
     return sv
 }
 
-//////////////////// TYPE OF KVPairs  ///////////////////////
+// XSVal 将v转换为一个增强的Slice对象，如果不支持转换，则返回空，使用者需要预先确认值类型
+func XSVal(v interface{}, f func(interface{}) string) *XS {
+    if xs, ok := v.(*XS); ok {
+        return xs
+    }
+
+    xs := NewXS(f)
+    value := reflect.ValueOf(v)
+    switch value.Kind() {
+    case reflect.Slice:
+        for i := 0; i < value.Len(); i++ {
+            xs.Add(value.Index(i).Interface())
+        }
+    }
+
+    // Return empty S if conversion is not possible
+    return xs
+}
+
+// ////////////////// TYPE OF KVPairs  ///////////////////////
+
 // KVPair 参数键值对
 type KVPair struct {
     K, V string
@@ -56,7 +77,7 @@ type KVPair struct {
 // KVPairs 参数键值对列表
 type KVPairs []KVPair
 
-// 上西安排序接口
+// Less 实现排序接口
 func (p KVPairs) Less(i, j int) bool {
     return p[i].K < p[j].K
 }
@@ -69,17 +90,17 @@ func (p KVPairs) Len() int {
     return len(p)
 }
 
-// 排序
+// Sort 排序
 func (p KVPairs) Sort() {
     sort.Sort(p)
 }
 
-// 倒序
+// Reverse 倒序
 func (p KVPairs) Reverse() {
     sort.Reverse(p)
 }
 
-// 添加键值对
+// Add 添加键值对
 func (p KVPairs) Add(k, v string) {
     p = append(p, KVPair{K: k, V: v})
 }
@@ -162,7 +183,7 @@ func Map2KVPairs(params map[string]string) KVPairs {
     return p
 }
 
-/////////////////////// TYPE OF M ///////////////////////////
+// ///////////////////// TYPE OF M ///////////////////////////
 
 // M 常用的map类型
 type M map[string]interface{}
@@ -372,7 +393,7 @@ func (m M) IsEmpty(k string) bool {
     return IsEmpty(v)
 }
 
-// UrlQuery 判断是否为空
+// UrlQuery 将map转换为query string
 func (m M) UrlQuery() string {
     q := url.Values{}
     for k, v := range m {
@@ -386,7 +407,7 @@ func (m M) Del(k string) {
     delete(m, k)
 }
 
-/////////////////////// TYPE OF S ///////////////////////////
+// ///////////////////// TYPE OF S ///////////////////////////
 
 // S 常用的slice类型
 type S []interface{}
@@ -403,7 +424,7 @@ func (s *S) Load(v []byte) error {
     return nil
 }
 
-// Json 获取json格式数据
+// Json 将S转换为json字符串
 func (s S) Json() string {
     v, _ := json.Marshal(s)
     return string(v)
@@ -413,7 +434,7 @@ func (s S) Size() int {
     return len(s)
 }
 
-// M 类型转换
+// M 类型转换，将slice转换为map
 func (s S) M() []M {
     size := s.Size()
     if size == 0 {
@@ -426,7 +447,7 @@ func (s S) M() []M {
     return v
 }
 
-// Int64 类型转换
+// Int64 类型转换，将所有元素转换成int64类型，并返回转换后的slice
 func (s S) Int64() []int64 {
     size := s.Size()
     if size == 0 {
@@ -549,4 +570,317 @@ func (s S) Contains(v interface{}) bool {
         }
     }
     return false
+}
+
+// Interface 类型转换, to interface
+func (s S) Interface() []interface{} {
+    return []interface{}(s)
+}
+
+// Extend 对slice进行增强
+func (s S) Extend(f func(interface{}) string) *XS {
+    return XSVal(s, f)
+}
+
+// ///////////////////// TYPE OF XS - A EXTENDED SLICE ///////////////////////////
+
+// XS 扩展增强的slice对象
+type XS struct {
+    sliceData []interface{}
+    mapData   map[string]*xsDataWithCount
+    keyFunc   func(interface{}) string // 定义将值转换为string的方法，主要用于去重
+    mu        sync.RWMutex
+}
+type xsDataWithCount struct {
+    data  interface{}
+    count int
+}
+
+// NewXS 创建一个slice增强对象
+func NewXS(f func(interface{}) string) *XS {
+    xs := &XS{
+        sliceData: make([]interface{}, 0),
+        mapData:   make(map[string]*xsDataWithCount),
+        keyFunc:   nil,
+        mu:        sync.RWMutex{},
+    }
+    if f == nil {
+        xs.keyFunc = func(i interface{}) string { // 定义一个默认方法
+            return String(i)
+        }
+    } else {
+        xs.keyFunc = f
+    }
+    return xs
+}
+
+// Size 获取元素列表个数
+func (xs *XS) Size() int {
+    return len(xs.sliceData)
+}
+
+// Add 添加（1个或多个）元素到列表
+func (xs *XS) Add(args ...interface{}) {
+    if len(args) == 0 {
+        return
+    }
+    xs.mu.Lock()
+    defer xs.mu.Unlock()
+    xs.sliceData = append(xs.sliceData, args...)
+    for _, v := range args {
+        k := xs.keyFunc(v)
+        if _, ok := xs.mapData[k]; !ok {
+            xs.mapData[k] = &xsDataWithCount{
+                data:  v,
+                count: 0,
+            }
+        }
+        xs.mapData[k].count++
+    }
+}
+
+// SAdd 添加（1个或多个）元素到列表, 如果元素已经存在，则忽略该元素
+func (xs *XS) SAdd(args ...interface{}) {
+    if len(args) == 0 {
+        return
+    }
+    xs.mu.Lock()
+    defer xs.mu.Unlock()
+    for _, v := range args {
+        k := xs.keyFunc(v)
+        if _, ok := xs.mapData[k]; !ok {
+            xs.sliceData = append(xs.sliceData, v)
+            xs.mapData[k] = &xsDataWithCount{
+                data:  v,
+                count: 1,
+            }
+        }
+    }
+}
+
+// Delete 删除指定值的元素
+func (xs *XS) Delete(arg interface{}) {
+    if !xs.Contains(arg) {
+        return
+    }
+    key := xs.keyFunc(arg)
+    xs.mu.Lock()
+    defer xs.mu.Unlock()
+    size := len(xs.sliceData)
+    for i := 0; i < size; i++ {
+        v := xs.sliceData[i]
+        k := xs.keyFunc(v)
+        if k == key {
+            // 删除元素
+            for j := i + 1; j < size; j++ {
+                xs.sliceData[j-1] = xs.sliceData[j]
+            }
+            size--
+            xs.mapData[k].count--
+            if xs.mapData[k].count == 0 {
+                // 元素已删除完毕
+                delete(xs.mapData, key)
+                break
+            }
+        }
+    }
+}
+
+// Contains 检查是否包含某个元素
+func (xs *XS) Contains(v interface{}) bool {
+    k := xs.keyFunc(v)
+    xs.mu.RLock()
+    defer xs.mu.RUnlock()
+    if dc, ok := xs.mapData[k]; ok && dc.count > 0 {
+        return true
+    }
+    return false
+}
+
+// Unique 对列表元素去重
+func (xs *XS) Unique() []interface{} {
+    s := make([]interface{}, len(xs.mapData))
+    xs.mu.RLock()
+    defer xs.mu.RUnlock()
+    i := 0
+    for _, v := range xs.mapData {
+        s[i] = v.data
+        i++
+    }
+    return s
+}
+
+// UniqueFilter 对列表元素去重，并根据filter方法进行过滤
+// filter参数是一个字符串，此值是根据创建XS对象时指定的keyFunc得到的
+func (xs *XS) UniqueFilter(f func(string) bool) []interface{} {
+    s := make([]interface{}, 0)
+    xs.mu.RLock()
+    defer xs.mu.RUnlock()
+    for k, v := range xs.mapData {
+        if ok := f(k); ok {
+            s = append(s, v.data)
+        }
+    }
+    return s
+}
+
+// Slice 获取切片(为了防止修改对象本身，需单独复制一个切片出来)
+func (xs *XS) Slice() []interface{} {
+    s := make([]interface{}, xs.Size())
+    copy(s, xs.sliceData)
+    return s
+}
+
+// Intersect 计算给定切片与当前列表的交集
+func (xs *XS) Intersect(arrs ...S) *XS {
+    // 创建一个新的XS对象
+    newXs := NewXS(xs.keyFunc)
+    newXs.Add(xs.Slice()...)
+    // 计算目标匹配次数
+    checkCount := len(arrs) + 1
+    for _, arr := range arrs {
+        newXs.Add(arr.Interface()...)
+    }
+    // 提取结果
+    outS := S{}
+    for _, dc := range newXs.mapData {
+        if dc.count == checkCount {
+            outS = append(outS, dc.data)
+        }
+    }
+    // 返回结果
+    return outS.Extend(xs.keyFunc)
+}
+
+// Union 计算给定切片与当前列表的并集
+func (xs *XS) Union(arrs ...S) *XS {
+    // 创建一个新的xs对象,，并以原来的xs数据填充
+    newXs := NewXS(xs.keyFunc)
+    newXs.Add(xs.Slice()...)
+    // 添加求并集的数据
+    for _, arr := range arrs {
+        newXs.Add(arr.Interface()...)
+    }
+    // 提取结果并返回
+    return S(newXs.Unique()).Extend(xs.keyFunc)
+}
+
+// ///////////////////// TYPE OF TreeItem ///////////////////////////
+
+// TreeItem 定义构成树的元素接口
+type TreeItem interface {
+    Key() string
+    ParentKey() string
+    AddChild(ti TreeItem)
+    GetChild(k string) (TreeItem, bool)
+}
+
+// Tree 定义一个树结构
+type Tree struct {
+    items   map[string]TreeItem
+    keyMaps map[string]string
+    keys    []string // 用于记录输出顺序
+}
+
+// NewTree 创建一个树实例
+func NewTree() *Tree {
+    return &Tree{
+        items:   make(map[string]TreeItem, 0),
+        keyMaps: make(map[string]string, 0),
+        keys:    make([]string, 0),
+    }
+}
+
+// path 返回一个元素的层级路径关系
+func (tree *Tree) path(pk string) []string {
+    paths := []string{pk}
+    for {
+        _pk, ok := tree.keyMaps[pk]
+        if !ok {
+            break
+        }
+        paths = append(paths, _pk)
+        pk = _pk
+    }
+    return paths
+}
+
+// Add 添加Tree Items
+func (tree *Tree) Add(items ...TreeItem) {
+    if len(items) == 0 {
+        return
+    }
+    // 第一次循环，将所有数据加入map
+    for _, item := range items {
+        k := item.Key()
+        pk := item.ParentKey()
+        tree.items[k] = item
+        if pk == "" {
+            tree.keys = append(tree.keys, k)
+        } else {
+            tree.keyMaps[k] = pk
+        }
+    }
+}
+
+// build 构造树
+func (tree *Tree) build() {
+    for k, item := range tree.items {
+        pk := item.ParentKey()
+        // pk 为空表示为顶级
+        if pk == "" {
+            continue
+        }
+        // 按层级处理, 获取元素的逐级上级key
+        // 即: 从最里层到最外层级，但是在添加元素时应该反向操作
+        paths := tree.path(pk)
+        size := len(paths)
+        root, ok := tree.items[paths[size-1]]
+        if !ok {
+            // root不存在，删除当前元素
+            delete(tree.items, k)
+            break
+        }
+        if size < 2 {
+            root.AddChild(item)
+        } else {
+            parent := root
+            for i := size - 2; i >= 0; i-- {
+                current, ok := parent.GetChild(paths[i])
+                if !ok {
+                    // 下级元素不存在，查看数据池（map）中是否存在该元素
+                    if child, ok := tree.items[paths[i]]; ok {
+                        parent.AddChild(child)
+                        current = child
+                    }
+                }
+                if current == nil {
+                    // 下级元素不存在也没有找到
+                    // 意味着当前元素的关系是不完整的（因为可以查找到路径，所以理论上不应该存在这种情况）
+                    delete(tree.items, k)
+                    break
+                }
+                parent = current
+                // 找到直接上级
+                if i == 0 {
+                    // 添加当前元素
+                    current.AddChild(item)
+                    delete(tree.items, k)
+                    continue
+                }
+            }
+        }
+    }
+}
+
+// Tree 返回树
+func (tree *Tree) Tree() []TreeItem {
+    tree.build()
+    items := make([]TreeItem, 0)
+    for _, k := range tree.keys {
+        if item, ok := tree.items[k]; ok {
+            items = append(items, item)
+        }
+    }
+    return items
 }
