@@ -125,11 +125,31 @@ func EmptyCond(v interface{}, elseVal interface{}) interface{} {
 
 /////////////////////// TYPE CONVERSIONS ///////////////////////////
 
+type stringer interface {
+    String() string
+}
+
+type int64er interface {
+    Int64() (int64, error)
+}
+
+type uint64er interface {
+    Uint64() (uint64, error)
+}
+
+type float64er interface {
+    Float64() (float64, error)
+}
+
 // String 将任意值转换成string类型
 // 注意：1. 当无法或者不支持转换时，此接口将返回0值；
 //       2. 此接口应当只在明确数据内容只是需要类型转换时使用，不应当用于对未知值进行转换。
 func String(v interface{}) string {
     var strVal = ""
+    if sv, ok := v.(stringer); ok {
+        strVal = sv.String()
+        return strVal
+    }
     switch v.(type) {
     case int, int8, int16, int32, int64:
         n := Int64(v)
@@ -163,6 +183,10 @@ func String(v interface{}) string {
 // 注意：1. 当无法或者不支持转换时，此接口将返回0值；
 //       2. 此接口应当只在明确数据内容只是需要类型转换时使用，不应当用于对未知值进行转换。
 func Int64(v interface{}) int64 {
+    if iv, ok := v.(int64er); ok {
+        i, _ := iv.Int64()
+        return i
+    }
     switch v.(type) {
     case int:
         return int64(v.(int))
@@ -189,7 +213,7 @@ func Int64(v interface{}) int64 {
     case float64:
         return int64(v.(float64))
     case string:
-        n, err := strconv.ParseInt(string(v.(string)), 10, 64)
+        n, err := strconv.ParseInt(v.(string), 10, 64)
         if err != nil {
             return 0
         }
@@ -217,6 +241,14 @@ func Int(v interface{}) int {
 // 注意：1. 当无法或者不支持转换时，此接口将返回0值；
 //       2. 此接口应当只在明确数据内容只是需要类型转换时使用，不应当用于对未知值进行转换。
 func Uint64(v interface{}) uint64 {
+    if uv, ok := v.(uint64er); ok {
+        ui, _ := uv.Uint64()
+        return ui
+    }
+    if iv, ok := v.(int64er); ok {
+        ii, _ := iv.Int64()
+        return uint64(ii)
+    }
     switch v.(type) {
     case int:
         return uint64(v.(int))
@@ -243,7 +275,7 @@ func Uint64(v interface{}) uint64 {
     case float64:
         return uint64(v.(float64))
     case string:
-        n, err := strconv.ParseUint(string(v.(string)), 10, 64)
+        n, err := strconv.ParseUint(v.(string), 10, 64)
         if err != nil {
             return 0
         }
@@ -271,6 +303,10 @@ func Uint(v interface{}) uint {
 // 注意：1. 当无法或者不支持转换时，此接口将返回0值；
 //       2. 此接口应当只在明确数据内容只是需要类型转换时使用，不应当用于对未知值进行转换。
 func Float64(v interface{}) float64 {
+    if fv, ok := v.(float64er); ok {
+        f, _ := fv.Float64()
+        return f
+    }
     switch v.(type) {
     case int:
         return float64(v.(int))
@@ -295,9 +331,9 @@ func Float64(v interface{}) float64 {
     case float32:
         return float64(v.(float32))
     case float64:
-        return float64(v.(float64))
+        return v.(float64)
     case string:
-        n, err := strconv.ParseFloat(string(v.(string)), 64)
+        n, err := strconv.ParseFloat(v.(string), 64)
         if err != nil {
             return 0
         }
