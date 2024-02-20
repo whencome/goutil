@@ -240,11 +240,11 @@ func (c *Client) addParam(key string, val interface{}) {
 }
 
 // buildRequest 构造请求信息
-func (client *Client) buildRequest(method, url string) (*http.Request, error) {
-    queryString := client.buildQueryString()
+func (c *Client) buildRequest(method, url string) (*http.Request, error) {
+    queryString := c.buildQueryString()
     var body io.Reader
-    if client.Body != nil {
-        body = client.Body
+    if c.Body != nil {
+        body = c.Body
     } else {
         if queryString != "" {
             if method == http.MethodGet {
@@ -266,15 +266,15 @@ func (client *Client) buildRequest(method, url string) (*http.Request, error) {
         return nil, err
     }
     // 设置头信息
-    if len(client.Headers) > 0 {
-        for k, v := range client.Headers {
+    if len(c.Headers) > 0 {
+        for k, v := range c.Headers {
             request.Header.Set(k, v)
         }
     }
     // 添加cookie信息
-    if len(client.Cookies) > 0 {
-        for _, c := range client.Cookies {
-            request.AddCookie(&http.Cookie{Name: c.Name, Value: String(c.Value), HttpOnly: c.HttpOnly})
+    if len(c.Cookies) > 0 {
+        for _, cc := range c.Cookies {
+            request.AddCookie(&http.Cookie{Name: cc.Name, Value: String(cc.Value), HttpOnly: cc.HttpOnly})
         }
     }
     // 设置http协议版本

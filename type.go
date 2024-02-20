@@ -25,10 +25,16 @@ func MVal(v interface{}) M {
     // 使用反射进行类型检查
     mv := M{}
     value := reflect.ValueOf(v)
+    if value.Kind() == reflect.Ptr {
+        value = value.Elem()
+    }
     if value.Kind() == reflect.Map {
         for _, k := range value.MapKeys() {
             mv[k.String()] = value.MapIndex(k).Interface()
         }
+    } else if value.Kind() == reflect.String {
+        // 使用此功能需自行承担失败风险
+        _ = json.Unmarshal([]byte(v.(string)), &mv)
     }
     return mv
 }
@@ -40,6 +46,9 @@ func SVal(v interface{}) S {
         return sv
     }
     value := reflect.ValueOf(v)
+    if value.Kind() == reflect.Ptr {
+        value = value.Elem()
+    }
     if value.Kind() == reflect.Slice || value.Kind() == reflect.Array {
         for i := 0; i < value.Len(); i++ {
             sv = append(sv, value.Index(i).Interface())
@@ -48,22 +57,43 @@ func SVal(v interface{}) S {
     return sv
 }
 
+// SMVal 将v转换为一个M列表
+func SMVal(v interface{}) []M {
+    smv := make([]M, 0)
+    if v == nil {
+        return smv
+    }
+    value := reflect.ValueOf(v)
+    if value.Kind() == reflect.Ptr {
+        value = value.Elem()
+    }
+    if value.Kind() == reflect.Slice || value.Kind() == reflect.Array {
+        for i := 0; i < value.Len(); i++ {
+            smv = append(smv, MVal(value.Index(i).Interface()))
+        }
+    }
+    return smv
+}
+
 // XSVal 将v转换为一个增强的Slice对象，如果不支持转换，则返回空，使用者需要预先确认值类型
 func XSVal(v interface{}, f func(interface{}) string) *XS {
     if xs, ok := v.(*XS); ok {
         return xs
     }
-
     xs := NewXS(f)
+    if v == nil {
+        return xs
+    }
     value := reflect.ValueOf(v)
+    if value.Kind() == reflect.Ptr {
+        value = value.Elem()
+    }
     switch value.Kind() {
     case reflect.Slice:
         for i := 0; i < value.Len(); i++ {
             xs.Add(value.Index(i).Interface())
         }
     }
-
-    // Return empty S if conversion is not possible
     return xs
 }
 
@@ -220,6 +250,20 @@ func (m M) Size() int {
     return len(m)
 }
 
+// Keys 获取map的键列表
+func (m M) Keys() []string {
+    keys := make([]string, len(m))
+    if len(m) == 0 {
+        return keys
+    }
+    i := 0
+    for k, _ := range m {
+        keys[i] = k
+        i++
+    }
+    return keys
+}
+
 // Get 获取配置项k的值
 func (m M) Get(k string) (interface{}, bool) {
     if v, ok := m[k]; ok {
@@ -350,6 +394,23 @@ func (m M) SVal(k string) S {
     return s
 }
 
+// SMVal 获取一个M切片
+func (m M) SMVal(k string) []M {
+    v, ok := m.Get(k)
+    if !ok {
+        return nil
+    }
+    s := SVal(v)
+    if len(s) == 0 {
+        return nil
+    }
+    sm := make([]M, len(s))
+    for i, v := range s {
+        sm[i] = MVal(v)
+    }
+    return sm
+}
+
 // UrlValues 转换为url.Values
 func (m M) UrlValues() url.Values {
     uv := url.Values{}
@@ -391,6 +452,16 @@ func (m M) IsEmpty(k string) bool {
         return true
     }
     return IsEmpty(v)
+}
+
+// IsArray 判断指定的值是否是切片或者数组
+func (m M) IsArray(k string) bool {
+    v, ok := m.Get(k)
+    if !ok {
+        return false
+    }
+    value := reflect.ValueOf(v)
+    return value.Kind() == reflect.Slice || value.Kind() == reflect.Array
 }
 
 // UrlQuery 将map转换为query string

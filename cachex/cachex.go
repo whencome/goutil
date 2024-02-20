@@ -4,6 +4,7 @@ import (
     "encoding/json"
     "fmt"
     "github.com/gomodule/redigo/redis"
+    "github.com/whencome/gotil"
 )
 
 // cacheKeyPrefix 设置缓存key的前缀
@@ -30,6 +31,18 @@ func getCacheKey(k string) string {
     return k
 }
 
+// Exists 判断指定key是否存在
+func Exists(rds redis.Conn, cacheKey string) (bool, error) {
+    cacheKey = getCacheKey(cacheKey)
+    return redis.Bool(rds.Do("EXISTS", cacheKey))
+}
+
+func PExists(provider Provider, cacheKey string) (bool, error) {
+    rds := provider.Redis()
+    defer rds.Close()
+    return Exists(rds, cacheKey)
+}
+
 // Call 带有缓存的调用，会将业务方法结果进行缓存
 func Call(ret interface{}, rds redis.Conn, cacheKey string, expire int64, bf BizFunc) error {
     cacheKey = getCacheKey(cacheKey)
@@ -47,18 +60,27 @@ func Call(ret interface{}, rds redis.Conn, cacheKey string, expire int64, bf Biz
     if err != nil {
         return err
     }
+    if gotil.IsNil(data) {
+        return nil
+    }
     bytesData, err := json.Marshal(data)
     if err != nil {
         return err
     }
     // 赋值
-    err = json.Unmarshal(bytesData, ret)
-    if err != nil {
-        return err
+    if ret != nil {
+        err = json.Unmarshal(bytesData, ret)
+        if err != nil {
+            return err
+        }
     }
 
     // 缓存数据(暂时忽略错误)
-    _, _ = rds.Do("SETEX", cacheKey, expire, string(bytesData))
+    if expire > 0 {
+        _, _ = rds.Do("SETEX", cacheKey, expire, string(bytesData))
+    } else {
+        _, _ = rds.Do("SETEX", cacheKey, string(bytesData))
+    }
     return nil
 }
 
@@ -93,7 +115,7 @@ func LockCall(ret interface{}, rds redis.Conn, cacheKey string, expire int64, au
         return err
     }
     if isExists {
-        return fmt.Errorf("锁[%s]已经存在", cacheKey)
+        return fmt.Errorf("你的手速有点快，喝口水再试试吧~")
     }
     // 1.2 尝试获取锁
     lockRs, err := rds.Do("SET", cacheKey, "1", "EX", expire, "NX")
@@ -102,7 +124,7 @@ func LockCall(ret interface{}, rds redis.Conn, cacheKey string, expire int64, au
     }
     if lockRs == nil {
         // 抢占失败
-        return fmt.Errorf("获取锁[%s]失败", cacheKey)
+        return fmt.Errorf("请求失败，请稍后再试")
     }
 
     // 2. 执行业务调用
@@ -110,14 +132,20 @@ func LockCall(ret interface{}, rds redis.Conn, cacheKey string, expire int64, au
     if err != nil {
         return err
     }
+    if gotil.IsNil(resp) {
+        ret = nil
+        return nil
+    }
     data, err := json.Marshal(resp)
     if err != nil {
         return err
     }
     // 赋值
-    err = json.Unmarshal(data, ret)
-    if err != nil {
-        return err
+    if ret != nil {
+        err = json.Unmarshal(data, ret)
+        if err != nil {
+            return err
+        }
     }
 
     // 3. 业务结束,释放锁
@@ -174,8 +202,26 @@ func Store(rds redis.Conn, cacheKey string, expire int64, data interface{}) erro
     if err != nil {
         return err
     }
-    _, err = rds.Do("SETEX", cacheKey, expire, string(bytesData))
+    if expire > 0 {
+        _, err = rds.Do("SETEX", cacheKey, expire, string(bytesData))
+    } else {
+        _, err = rds.Do("SET", cacheKey, string(bytesData))
+    }
     return err
+}
+
+// StoreMany 缓存多个值
+func StoreMany(rds redis.Conn, cacheKey string, expire int64, data map[string]interface{}) error {
+    if len(data) == 0 {
+        return nil
+    }
+    for cacheKey, cacheData := range data {
+        err := Store(rds, cacheKey, expire, cacheData)
+        if err != nil {
+            return err
+        }
+    }
+    return nil
 }
 
 // PStore 直接缓存结果
@@ -183,6 +229,13 @@ func PStore(provider Provider, cacheKey string, expire int64, data interface{}) 
     rds := provider.Redis()
     defer rds.Close()
     return Store(rds, cacheKey, expire, data)
+}
+
+// PStoreMany 缓存多个值
+func PStoreMany(provider Provider, cacheKey string, expire int64, data map[string]interface{}) error {
+    rds := provider.Redis()
+    defer rds.Close()
+    return StoreMany(rds, cacheKey, expire, data)
 }
 
 // Fetch 从缓存中取值
@@ -200,4 +253,60 @@ func PFetch(ret interface{}, provider Provider, cacheKey string) error {
     rds := provider.Redis()
     defer rds.Close()
     return Fetch(ret, rds, cacheKey)
+}
+
+// Incr 对指定的key的数值加1
+func Incr(rds redis.Conn, cacheKey string) (int64, error) {
+    cacheKey = getCacheKey(cacheKey)
+    return redis.Int64(rds.Do("INCR", cacheKey))
+}
+
+func PIncr(provider Provider, cacheKey string) (int64, error) {
+    cacheKey = getCacheKey(cacheKey)
+    return redis.Int64(provider.Redis().Do("INCR", cacheKey))
+}
+
+// Decr 对指定的key的数值减1
+func Decr(rds redis.Conn, cacheKey string) (int64, error) {
+    cacheKey = getCacheKey(cacheKey)
+    return redis.Int64(rds.Do("INCR", cacheKey))
+}
+
+func PDecr(provider Provider, cacheKey string) (int64, error) {
+    cacheKey = getCacheKey(cacheKey)
+    return redis.Int64(provider.Redis().Do("INCR", cacheKey))
+}
+
+// SetBit 设置或清除指定偏移量上的位(bit)。位的设置或清除取决于 value，可以是 0 或者是 1 。
+// 当expire为大于0的时候，表示需要定时过期
+func SetBit(rds redis.Conn, cacheKey string, expire int64, offset int64, v int) error {
+    cacheKey = getCacheKey(cacheKey)
+    _, err := rds.Do("SETBIT", cacheKey, offset, v)
+    if err != nil {
+        return err
+    }
+    // 如果指定了过期时间，则需要进行设置
+    // 过期时间单位为秒
+    if expire > 0 {
+        _, _ = rds.Do("EXPIRE", cacheKey, expire)
+    }
+    return err
+}
+
+func PSetBit(provider Provider, cacheKey string, expire int64, offset int64, v int) error {
+    rds := provider.Redis()
+    defer rds.Close()
+    return SetBit(rds, cacheKey, expire, offset, v)
+}
+
+// GetBit 获取指定位的值
+func GetBit(rds redis.Conn, cacheKey string, offset int64) (int, error) {
+    cacheKey = getCacheKey(cacheKey)
+    return redis.Int(rds.Do("GETBIT", cacheKey, offset))
+}
+
+func PGetBit(provider Provider, cacheKey string, offset int64) (int, error) {
+    rds := provider.Redis()
+    defer rds.Close()
+    return GetBit(rds, cacheKey, offset)
 }
