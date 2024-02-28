@@ -5,39 +5,15 @@ import (
     "math/rand"
     "reflect"
     "strconv"
-    "strings"
     "time"
-    "unicode/utf8"
-
-    "github.com/axgle/mahonia"
 )
 
-// 定义数据表特殊字符替换映射表
-var sqlSpecialCharMaps = []map[string]string{
-    {"old": `\`, "new": `\\`},
-    {"old": `'`, "new": `\'`},
-    {"old": `"`, "new": `\"`},
-}
-
-// EscapeSqlValue 转义数据库中的特殊字符，暂时只处理常见内容
-func EscapeSqlValue(str string) string {
-    // 先检查是否是utf8，不是则先转换
-    if !utf8.ValidString(str) {
-        utf8Encoder := mahonia.NewEncoder("UTF-8")
-        str = utf8Encoder.ConvertString(str)
-    }
-    for _, repl := range sqlSpecialCharMaps {
-        str = strings.ReplaceAll(str, repl["old"], repl["new"])
-    }
-    return str
-}
-
-////////////////// UTIL FUNCS ///////////////
+// //////////////// UTIL FUNCS ///////////////
 
 // CopyStruct 复制结构体
 func CopyStruct(src, dst interface{}) {
-    dstVal := reflect.ValueOf(dst).Elem() //获取reflect.Type类型
-    srcVal := reflect.ValueOf(src).Elem() //获取reflect.Type类型
+    dstVal := reflect.ValueOf(dst).Elem() // 获取reflect.Type类型
+    srcVal := reflect.ValueOf(src).Elem() // 获取reflect.Type类型
     vTypeOfT := srcVal.Type()
     for i := 0; i < srcVal.NumField(); i++ {
         // 在要修改的结构体中查询有数据结构体中相同属性的字段，有则修改其值
@@ -66,6 +42,17 @@ func RandString(len int) string {
     return string(bytes)
 }
 
+// RandNumericString 生成一个只包含数字的随机字符串
+func RandNumericString(len int) string {
+    r := rand.New(rand.NewSource(time.Now().UnixNano()))
+    bytes := make([]byte, len)
+    for i := 0; i < len; i++ {
+        b := r.Intn(10) + 48
+        bytes[i] = byte(b)
+    }
+    return string(bytes)
+}
+
 // IsNil 判断给定的值是否为nil
 func IsNil(i interface{}) bool {
     ret := i == nil
@@ -83,6 +70,21 @@ func IsNil(i interface{}) bool {
         }
     }
     return ret
+}
+
+// IsList 判断给定的对象是否是数组或者切片
+func IsList(i interface{}) bool {
+    if i == nil {
+        return false
+    }
+    value := reflect.ValueOf(i)
+    if value.Kind() == reflect.Ptr {
+        value = value.Elem()
+    }
+    if value.Kind() == reflect.Slice || value.Kind() == reflect.Array {
+        return true
+    }
+    return false
 }
 
 // SubString 字符串截取
@@ -123,7 +125,7 @@ func EmptyCond(v interface{}, elseVal interface{}) interface{} {
     return v
 }
 
-/////////////////////// TYPE CONVERSIONS ///////////////////////////
+// ///////////////////// TYPE CONVERSIONS ///////////////////////////
 
 type stringer interface {
     String() string
