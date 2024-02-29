@@ -1,9 +1,10 @@
 package timeutil
 
 import (
-    "github.com/whencome/gotil"
     "sync"
     "time"
+
+    "github.com/whencome/goutil"
 )
 
 type TimerTicker struct {
@@ -33,7 +34,7 @@ func (t *TimerTicker) start() {
         curTime := <-t.ticker.C
         now := curTime.Unix()
         t.buff.Range(func(key, value interface{}) bool {
-            v := gotil.Int64(value)
+            v := goutil.Int64(value)
             if v < now {
                 t.buff.Delete(key)
                 return true
@@ -41,7 +42,7 @@ func (t *TimerTicker) start() {
             if v > now {
                 return true
             }
-            t.C <- gotil.String(key)
+            t.C <- goutil.String(key)
             return true
         })
     }

@@ -7,8 +7,6 @@ import (
     "os"
     "path/filepath"
     "strings"
-
-    "github.com/whencome/xlog"
 )
 
 // WalkFile 文件对象
@@ -77,10 +75,7 @@ func (my *Dir) CopyFile(src string, dst string, mode os.FileMode) error {
         return err
     }
     defer func() {
-        err := srcFile.Close()
-        if err != nil {
-            xlog.Errorf("close file failed %v\n", err)
-        }
+        srcFile.Close()
     }()
     // 通过srcFile，获取到READER
     reader := bufio.NewReader(srcFile)
@@ -94,10 +89,7 @@ func (my *Dir) CopyFile(src string, dst string, mode os.FileMode) error {
 
     defer func() {
         writer.Flush()
-        err := dstFile.Close()
-        if err != nil {
-            xlog.Errorf("close file failed %v\n", err)
-        }
+        dstFile.Close()
     }()
 
     _, copyErr := io.Copy(writer, reader)

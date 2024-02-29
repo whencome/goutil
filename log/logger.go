@@ -135,7 +135,7 @@ func WithStack(l Logger) Logger {
             prevCodePath = codePath
             prevCodeLine = codeLine
             prevFuncName = runtime.FuncForPC(pc).Name()
-            if !strings.Contains(prevCodePath, "/gotil/log") {
+            if !strings.Contains(prevCodePath, "/goutil/log") {
                 // 找到包外的函数了
                 break
             }

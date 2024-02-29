@@ -1,4 +1,4 @@
-package gotil
+package goutil
 
 import (
     "fmt"

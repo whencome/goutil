@@ -2,10 +2,11 @@ package timeutil
 
 import (
     "errors"
-    "github.com/whencome/gotil"
     "regexp"
     "strings"
     "time"
+
+    "github.com/whencome/goutil"
 )
 
 // TimeRange 时间范围（unix时间，秒）
@@ -145,14 +146,14 @@ func Format2UnixTimestamp(i int64) int64 {
     }
     // 判断是时间戳还是日期时间格式
     location := GetLocation()
-    ts := gotil.String(i)
+    ts := goutil.String(i)
     t, err := time.ParseInLocation("20060102150405", ts, location)
     // 如果出现错误，表示给定的数据是时间戳
     if err != nil {
         // 如果是毫秒，则转换到秒
         if len(ts) > 10 {
             ts = ts[0:10]
-            return gotil.Int64(ts)
+            return goutil.Int64(ts)
         }
         return i
     }
@@ -228,8 +229,8 @@ func MonthTimeRange(yearMonth string) (TimeRange, error) {
         return TimeRange{}, errors.New("invalid month format")
     }
     parts := strings.Split(yearMonth, "-")
-    year := gotil.Int(parts[0])
-    month := gotil.Int(parts[1])
+    year := goutil.Int(parts[0])
+    month := goutil.Int(parts[1])
     loc := GetLocation()
     beginTime := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, loc)
     endTime := beginTime.AddDate(0, +1, 0)

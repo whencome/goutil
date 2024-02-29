@@ -1,9 +1,10 @@
 package timeutil
 
 import (
-    "github.com/whencome/gotil"
     "sync"
     "time"
+
+    "github.com/whencome/goutil"
 )
 
 type DelayTicker struct {
@@ -33,9 +34,9 @@ func (t *DelayTicker) start() {
         curTime := <-t.ticker.C
         now := curTime.Unix()
         t.buff.Range(func(key, value interface{}) bool {
-            v := gotil.Int64(value)
+            v := goutil.Int64(value)
             if now-v >= t.Interval {
-                t.C <- gotil.String(key)
+                t.C <- goutil.String(key)
                 t.buff.Delete(key)
             }
             return true

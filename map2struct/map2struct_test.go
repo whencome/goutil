@@ -2,8 +2,9 @@ package map2struct
 
 import (
     "fmt"
-    "github.com/whencome/gotil"
     "testing"
+
+    "github.com/whencome/goutil"
 )
 
 type Student struct {
@@ -20,7 +21,7 @@ var s = &Student{
     Address: "A secret address that can not be known for now",
 }
 
-var m = gotil.M{
+var m = goutil.M{
     "name":    "Jack Smith",
     "age":     18,
     "score":   89.5,

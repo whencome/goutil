@@ -3,8 +3,9 @@ package cachex
 import (
     "encoding/json"
     "fmt"
+
     "github.com/gomodule/redigo/redis"
-    "github.com/whencome/gotil"
+    "github.com/whencome/goutil"
 )
 
 // cacheKeyPrefix 设置缓存key的前缀
@@ -60,7 +61,7 @@ func Call(ret interface{}, rds redis.Conn, cacheKey string, expire int64, bf Biz
     if err != nil {
         return err
     }
-    if gotil.IsNil(data) {
+    if goutil.IsNil(data) {
         return nil
     }
     bytesData, err := json.Marshal(data)
@@ -132,7 +133,7 @@ func LockCall(ret interface{}, rds redis.Conn, cacheKey string, expire int64, au
     if err != nil {
         return err
     }
-    if gotil.IsNil(resp) {
+    if goutil.IsNil(resp) {
         ret = nil
         return nil
     }

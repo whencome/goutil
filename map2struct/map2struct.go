@@ -4,7 +4,7 @@ import (
     "fmt"
     "reflect"
 
-    "github.com/whencome/gotil"
+    "github.com/whencome/goutil"
 )
 
 // 定义转换器
@@ -13,7 +13,7 @@ type converter struct {
     Tag          string            // 标签名称
     PropFieldMap map[string]string // 属性与字段(tag定义)映射关系
     FieldPropMap map[string]string // 字段与属性映射关系
-    PropValues   gotil.M           // 属性与值的映射关系
+    PropValues   goutil.M          // 属性与值的映射关系
 }
 
 // 创建一个转换器
@@ -23,7 +23,7 @@ func newConverter(obj interface{}, tag string) *converter {
         Tag:          tag,
         PropFieldMap: make(map[string]string),
         FieldPropMap: make(map[string]string),
-        PropValues:   gotil.M{},
+        PropValues:   goutil.M{},
     }
     c.init()
     return c
@@ -64,9 +64,9 @@ func (c *converter) init() {
 }
 
 // ToMap 将对象转换为map
-func (c *converter) ToMap() gotil.M {
+func (c *converter) ToMap() goutil.M {
     // 创建m对象
-    m := gotil.M{}
+    m := goutil.M{}
     for propName, value := range c.PropValues {
         fieldName, ok := c.PropFieldMap[propName]
         if !ok {
@@ -106,15 +106,15 @@ func (c *converter) ToStruct(v interface{}) error {
         propTypeKind := reflectField.Kind()
         switch propTypeKind {
         case reflect.String:
-            reflectField.SetString(gotil.String(v))
+            reflectField.SetString(goutil.String(v))
         case reflect.Bool:
-            reflectField.SetBool(gotil.Bool(v))
+            reflectField.SetBool(goutil.Bool(v))
         case reflect.Int64, reflect.Int, reflect.Int32, reflect.Int16, reflect.Int8:
-            reflectField.SetInt(gotil.Int64(v))
+            reflectField.SetInt(goutil.Int64(v))
         case reflect.Uint64, reflect.Uint, reflect.Uint32, reflect.Uint16, reflect.Uint8:
-            reflectField.SetUint(gotil.Uint64(v))
+            reflectField.SetUint(goutil.Uint64(v))
         case reflect.Float64:
-            reflectField.SetFloat(gotil.Float64(v))
+            reflectField.SetFloat(goutil.Float64(v))
         default: // 其他类型暂不支持
             break
         }
@@ -123,11 +123,11 @@ func (c *converter) ToStruct(v interface{}) error {
 }
 
 // getMapData 将给定的参数转换成指定的map格式，如果参数不是支持的类型将报错
-func getMapData(data interface{}) (gotil.M, error) {
-    if dm, ok := data.(gotil.M); ok {
+func getMapData(data interface{}) (goutil.M, error) {
+    if dm, ok := data.(goutil.M); ok {
         return dm, nil
     }
-    retData := gotil.M{}
+    retData := goutil.M{}
     value := reflect.ValueOf(data)
     if value.Kind() == reflect.Map {
         for _, k := range value.MapKeys() {
@@ -152,13 +152,13 @@ func ToStruct(dstObj interface{}, mapData interface{}) error {
 }
 
 // ToMapByTag 将struct数据解析为map
-func ToMapByTag(dstObj interface{}, tag string) gotil.M {
+func ToMapByTag(dstObj interface{}, tag string) goutil.M {
     c := newConverter(dstObj, tag)
     return c.ToMap()
 }
 
 // ToMap 将struct数据解析为map
-func ToMap(dstObj interface{}) gotil.M {
+func ToMap(dstObj interface{}) goutil.M {
     c := newConverter(dstObj, "map2struct")
     return c.ToMap()
 }
