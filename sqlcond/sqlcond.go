@@ -4,9 +4,10 @@ import (
     "bytes"
     "errors"
     "fmt"
-    "goutil"
     "regexp"
     "strings"
+
+    "github.com/whencome/goutil"
 )
 
 const (
