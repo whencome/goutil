@@ -30,7 +30,8 @@ func MVal(v interface{}) M {
     }
     if value.Kind() == reflect.Map {
         for _, k := range value.MapKeys() {
-            mv[k.String()] = value.MapIndex(k).Interface()
+            sk := String(k.Interface())
+            mv[sk] = value.MapIndex(k).Interface()
         }
     } else if value.Kind() == reflect.String {
         // 使用此功能需自行承担失败风险
