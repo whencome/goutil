@@ -1,11 +1,17 @@
 package cachex
 
 import (
-    "encoding/json"
     "fmt"
+    "strings"
 
     "github.com/gomodule/redigo/redis"
     "github.com/whencome/goutil"
+    "github.com/whencome/goutil/jsonkit"
+)
+
+const (
+    // NoPrefixKey 无前缀key，在缓存key前面加上此前缀，则会忽略设置的全局前缀key
+    NoPrefixKey = "!<:"
 )
 
 // cacheKeyPrefix 设置缓存key的前缀
@@ -26,6 +32,11 @@ func SetCacheKeyPrefix(prefix string) {
 
 // getCacheKey 获取一个完整的cache key
 func getCacheKey(k string) string {
+    // 使用“!<:”表示不需要前缀，一般用于多服务共享缓存的情形
+    if strings.HasPrefix(k, NoPrefixKey) {
+        return k[len(NoPrefixKey):]
+    }
+    // 添加前缀
     if cacheKeyPrefix != "" {
         k = cacheKeyPrefix + ":" + k
     }
@@ -50,7 +61,7 @@ func Call(ret interface{}, rds redis.Conn, cacheKey string, expire int64, bf Biz
     // get data from cache
     cacheData, err := redis.Bytes(rds.Do("GET", cacheKey))
     if err == nil {
-        err = json.Unmarshal(cacheData, ret)
+        err = jsonkit.Unmarshal(cacheData, ret)
         if err == nil {
             return nil
         }
@@ -64,13 +75,13 @@ func Call(ret interface{}, rds redis.Conn, cacheKey string, expire int64, bf Biz
     if goutil.IsNil(data) {
         return nil
     }
-    bytesData, err := json.Marshal(data)
+    bytesData, err := jsonkit.Marshal(data)
     if err != nil {
         return err
     }
     // 赋值
     if ret != nil {
-        err = json.Unmarshal(bytesData, ret)
+        err = jsonkit.Unmarshal(bytesData, ret)
         if err != nil {
             return err
         }
@@ -109,6 +120,7 @@ func PResetCall(ret interface{}, provider Provider, cacheKey string, expire int6
 // LockCall 带有锁的调用，当存在并发调用可能时，先寻求获得cacheKey对应的锁，如果获取失败，则无法执行
 // autoUnlock - 标记是否自动释放锁（仅限请求成功时），如果不自动释放，则需要等待锁自动过期释放，此参数可以用于防止重复提交等场景
 func LockCall(ret interface{}, rds redis.Conn, cacheKey string, expire int64, autoUnlock bool, bf BizFunc) error {
+    cacheKey = getCacheKey(cacheKey)
     // 1. 先检查锁是否存在，如果不存在再尝试获取锁
     // 1.1 检查锁是否存在
     isExists, err := redis.Bool(rds.Do("EXISTS", cacheKey))
@@ -137,13 +149,13 @@ func LockCall(ret interface{}, rds redis.Conn, cacheKey string, expire int64, au
         ret = nil
         return nil
     }
-    data, err := json.Marshal(resp)
+    data, err := jsonkit.Marshal(resp)
     if err != nil {
         return err
     }
     // 赋值
     if ret != nil {
-        err = json.Unmarshal(data, ret)
+        err = jsonkit.Unmarshal(data, ret)
         if err != nil {
             return err
         }
@@ -199,7 +211,7 @@ func PRemoveBatch(provider Provider, cacheKeys []string) {
 // Store 直接缓存结果
 func Store(rds redis.Conn, cacheKey string, expire int64, data interface{}) error {
     cacheKey = getCacheKey(cacheKey)
-    bytesData, err := json.Marshal(data)
+    bytesData, err := jsonkit.Marshal(data)
     if err != nil {
         return err
     }
@@ -212,7 +224,7 @@ func Store(rds redis.Conn, cacheKey string, expire int64, data interface{}) erro
 }
 
 // StoreMany 缓存多个值
-func StoreMany(rds redis.Conn, cacheKey string, expire int64, data map[string]interface{}) error {
+func StoreMany(rds redis.Conn, expire int64, data map[string]interface{}) error {
     if len(data) == 0 {
         return nil
     }
@@ -233,10 +245,10 @@ func PStore(provider Provider, cacheKey string, expire int64, data interface{}) 
 }
 
 // PStoreMany 缓存多个值
-func PStoreMany(provider Provider, cacheKey string, expire int64, data map[string]interface{}) error {
+func PStoreMany(provider Provider, expire int64, data map[string]interface{}) error {
     rds := provider.Redis()
     defer rds.Close()
-    return StoreMany(rds, cacheKey, expire, data)
+    return StoreMany(rds, expire, data)
 }
 
 // Fetch 从缓存中取值
@@ -244,9 +256,12 @@ func Fetch(ret interface{}, rds redis.Conn, cacheKey string) error {
     cacheKey = getCacheKey(cacheKey)
     bytesData, err := redis.Bytes(rds.Do("GET", cacheKey))
     if err != nil {
+        if err == redis.ErrNil {
+            return nil
+        }
         return err
     }
-    return json.Unmarshal(bytesData, ret)
+    return jsonkit.Unmarshal(bytesData, ret)
 }
 
 // PFetch 从缓存中取值

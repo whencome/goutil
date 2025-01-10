@@ -6,6 +6,9 @@ import (
 
 // Contains 检查列表是否包含某个值
 func Contains[T comparable](arr []T, s T) bool {
+    if len(arr) == 0 {
+        return false
+    }
     for _, v := range arr {
         if v == s {
             return true
@@ -64,4 +67,57 @@ func UniqueAndFilter[T comparable](arr []T) []T {
         ret = append(ret, v)
     }
     return ret
+}
+
+// Chunk 将给定的切片拆分成指定大小size的二维切片
+func Chunk[T any](arr []T, size int) [][]T {
+    arraySize := len(arr)
+    if arraySize <= size {
+        return [][]T{arr}
+    }
+
+    ret := make([][]T, 0)
+    for i := 0; ; i++ {
+        begin, end := i*size, (i+1)*size
+
+        if begin >= arraySize {
+            break
+        }
+        if end > arraySize {
+            end = arraySize
+        }
+        ret = append(ret, arr[begin:end])
+    }
+    return ret
+}
+
+// Remove 从数组中移除指定的元素
+func Remove[T comparable](arr []T, e T) []T {
+    newArr := make([]T, 0)
+    for _, a := range arr {
+        if a == e {
+            continue
+        }
+        newArr = append(newArr, a)
+    }
+    return newArr
+}
+
+// RemoveBatch 从数组中移除多个元素
+func RemoveBatch[T comparable](arr []T, elements ...T) []T {
+    if len(elements) == 0 {
+        return arr
+    }
+    eMaps := make(map[T]bool)
+    for _, e := range elements {
+        eMaps[e] = true
+    }
+    newArr := make([]T, 0)
+    for _, a := range arr {
+        if _, ok := eMaps[a]; ok {
+            continue
+        }
+        newArr = append(newArr, a)
+    }
+    return newArr
 }
