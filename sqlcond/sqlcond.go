@@ -4,10 +4,9 @@ import (
     "bytes"
     "errors"
     "fmt"
+    "github.com/whencome/goutil"
     "regexp"
     "strings"
-
-    "github.com/whencome/goutil"
 )
 
 const (
@@ -270,6 +269,14 @@ func (c *Condition) AddError(err error) {
 // Size 获取子条件数量，用于判断条件是否为空
 func (c *Condition) Size() int {
     return len(c.conds)
+}
+
+// IsOK 用于判断条件是否有效，即非空且无错
+func (c *Condition) IsOK() bool {
+    if len(c.conds) == 0 || c.Error != nil {
+        return false
+    }
+    return true
 }
 
 // Build 构造条件, 将查询条件与对应的值分别返回
