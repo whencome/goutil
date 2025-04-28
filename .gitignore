@@ -6,4 +6,5 @@ composer.lock
 .buildpath
 .project
 .settings/
+bin/*
 
