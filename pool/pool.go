@@ -57,3 +57,7 @@ func (wp *WorkerPool) Run() {
         }
     }()
 }
+
+func (wp *WorkerPool) Add(job Job) {
+    wp.JobQueue <- job
+}

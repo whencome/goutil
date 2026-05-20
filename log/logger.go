@@ -2,13 +2,11 @@ package log
 
 import (
     "fmt"
+    "github.com/sirupsen/logrus"
+    gormlog "gorm.io/gorm/logger"
     "runtime"
     "strings"
     "sync"
-
-    kratoslog "github.com/go-kratos/kratos/v2/log"
-    "github.com/sirupsen/logrus"
-    gormlog "gorm.io/gorm/logger"
 )
 
 // stdLogger a instance of Logger, this make sure you can directly call log.XXX function
@@ -256,7 +254,7 @@ func WithGormLogger(level gormlog.LogLevel) gormlog.Interface {
 }
 
 // Log 实现gokratos日志接口
-func (l *defaultLogger) Log(level kratoslog.Level, keyvals ...interface{}) error {
+func (l *defaultLogger) Log(level Level, keyvals ...interface{}) error {
     if len(keyvals) == 0 || len(keyvals)%2 != 0 {
         WithStack(l).Warnf("log keyvalues must appear in pairs: %v", keyvals)
         return nil
@@ -267,21 +265,16 @@ func (l *defaultLogger) Log(level kratoslog.Level, keyvals ...interface{}) error
     }
     logger := WithStack(l).WithFields(fields)
     switch level {
-    case kratoslog.LevelDebug:
+    case LevelDebug:
         logger.Debug("")
-    case kratoslog.LevelInfo:
+    case LevelInfo:
         logger.Info("")
-    case kratoslog.LevelWarn:
+    case LevelWarn:
         logger.Warn("")
-    case kratoslog.LevelError:
+    case LevelError:
         logger.Error("")
-    case kratoslog.LevelFatal:
+    case LevelFatal:
         logger.Fatal("")
     }
     return nil
-}
-
-// KratosLogger 获取一个实现kratos日志接口的日志对象
-func KratosLogger() kratoslog.Logger {
-    return stdLogger.(*defaultLogger)
 }

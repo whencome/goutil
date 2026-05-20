@@ -4,6 +4,7 @@ import (
     "io"
     "net/http"
     "net/http/httptest"
+    "strings"
     "testing"
 )
 
@@ -44,5 +45,27 @@ func TestClient(t *testing.T) {
     }
     if string(body) != "test response" {
         t.Errorf("expected body %q, got %q", "test response", string(body))
+    }
+}
+
+func TestGetHeaders(t *testing.T) {
+    url := "https://pics0.baidu.com/feed/a8ec8a13632762d0b81b48806dba3ff4513dc649.jpeg"
+    header, err := GetHeaders(url)
+    if err != nil {
+        t.Logf("err: %v\n", err)
+        t.Fail()
+        return
+    }
+    contentType := header.Get("Content-Type")
+    t.Logf("Content-Type = %s\n", contentType)
+    if contentType == "" {
+        t.Logf("get Content-Type fail: %v\n", err)
+        t.Fail()
+        return
+    }
+    if !strings.Contains(contentType, "image/") {
+        t.Logf("Content-Type out of expected\n")
+        t.Fail()
+        return
     }
 }

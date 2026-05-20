@@ -5,9 +5,11 @@ import (
     "fmt"
     "io"
     "mime/multipart"
+    "net/http"
     "os"
     "path"
     "path/filepath"
+    "strings"
 )
 
 // String 将任意类型转换为string
@@ -27,6 +29,19 @@ func String(v any) string {
     default:
         return fmt.Sprintf("%v", v)
     }
+}
+
+// BuildUrl 构造请求地址
+func BuildUrl(host, path string) string {
+    if !strings.HasSuffix(host, "/") {
+        host += "/"
+    }
+    if len(path) >= 1 {
+        if strings.HasPrefix(path, "/") {
+            path = path[1:]
+        }
+    }
+    return host + path
 }
 
 // Download 下载指定地址的文件到本地
@@ -99,4 +114,14 @@ func Upload(localFile string, serverUrl string, fileField string) (string, error
     }
 
     return string(respBody), nil
+}
+
+// GetHeaders 获取给定地址的头信息，不返回body部分内容
+func GetHeaders(url string) (http.Header, error) {
+    resp, err := NewClient().Head(url)
+    if err != nil {
+        return nil, err
+    }
+    _ = resp.Body.Close()
+    return resp.Header, nil
 }

@@ -9,6 +9,13 @@ import (
 	"github.com/whencome/goutil"
 )
 
+const (
+	// 日期验证正则表达式
+	datePattern = `^\d{4}\-\d{1,2}\-\d{1,2}`
+	// 日期时间格式验证正则表达式
+	dateTimePattern = `^\d{4}\-\d{1,2}\-\d{1,2}\s\d{1,2}:\d{1,2}:\d{1,2}`
+)
+
 // TimeRange 时间范围（unix时间，秒）
 type TimeRange struct {
 	StartTime time.Time
@@ -29,7 +36,10 @@ func (tr TimeRange) Dates() []string {
 
 // GetLocation 获取系统使用的时区信息
 func GetLocation() *time.Location {
-	location, _ := time.LoadLocation("Asia/Shanghai")
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		return time.Local
+	}
 	return location
 }
 
@@ -63,6 +73,18 @@ func DateTimeFromUnixTime(timestamp int64) string {
 		return ""
 	}
 	ut := time.Unix(timestamp, 0)
+	return ut.Format("2006-01-02 15:04:05")
+}
+
+// ShortDateTimeFromUnixTime 将unix时间戳格式化为日期时间，如果
+func ShortDateTimeFromUnixTime(timestamp int64) string {
+	if timestamp <= 0 {
+		return ""
+	}
+	ut := time.Unix(timestamp, 0)
+	if timestamp%3600 == 0 && ut.Format("15") == "00" {
+		return ut.Format("2006-01-02")
+	}
 	return ut.Format("2006-01-02 15:04:05")
 }
 
@@ -112,7 +134,7 @@ func MillisecondsFromDateTime(dt, format string) int64 {
 	if err != nil {
 		return 0
 	}
-	return t.UnixNano() / 1e6
+	return t.UnixMilli()
 }
 
 // Unix 将日期时间格式转换为unix时间戳
@@ -124,16 +146,35 @@ func Unix(t string) int64 {
 	return UnixTime(t, format)
 }
 
+// Parse 根据日期时间格式获取时间
+func Parse(ts string) (time.Time, error) {
+	location := GetLocation()
+	format := GetFormat(ts)
+	if format == "" {
+		format = "2006-01-02 15:04:05"
+	}
+	return time.ParseInLocation(format, ts, location)
+}
+
 // GetFormat 获取日期时间戳格式
 func GetFormat(t string) string {
 	// 默认24小时制
-	if m, e := regexp.MatchString(`\d{4}\-\d{1,2}\-\d{1,2}\s\d{1,2}:\d{1,2}:\d{1,2}`, t); e == nil && m {
+	if m, e := regexp.MatchString(`^\d{4}\-\d{1,2}\-\d{1,2}\s\d{1,2}:\d{1,2}:\d{1,2}$`, t); e == nil && m {
 		return "2006-01-02 15:04:05"
 	}
-	if m, e := regexp.MatchString(`\d{4}\-\d{1,2}\-\d{1,2}`, t); e == nil && m {
+	if m, e := regexp.MatchString(`^\d{4}\-\d{1,2}\-\d{1,2}T\d{1,2}:\d{1,2}:\d{1,2}\+\d{2}:\d{2}$`, t); e == nil && m {
+		return "2006-01-02T15:04:05Z07:00"
+	}
+	if m, e := regexp.MatchString(`^\d{4}\-\d{1,2}\-\d{1,2}T\d{1,2}:\d{1,2}:\d{1,2}\.\d{3}\+\d{2}:\d{2}$`, t); e == nil && m {
+		return "2006-01-02T15:04:05.000-07:00"
+	}
+	if m, e := regexp.MatchString(`^\d{4}\-\d{2}\-\d{2}\s\d{2}:\d{2}:\d{2}\s[+-]\d{4}\s[A-Z]{3}$`, t); e == nil && m {
+		return "2006-01-02 15:04:05 -0700 MST"
+	}
+	if m, e := regexp.MatchString(`^\d{4}\-\d{1,2}\-\d{1,2}$`, t); e == nil && m {
 		return "2006-01-02"
 	}
-	if m, e := regexp.MatchString(`\d{1,2}\/\d{1,2}\/\d{4}`, t); e == nil && m {
+	if m, e := regexp.MatchString(`^\d{1,2}\/\d{1,2}\/\d{4}$`, t); e == nil && m {
 		return "01/02/2006"
 	}
 	return ""
@@ -186,13 +227,13 @@ func DateFromDateTime(dt string) string {
 	return dt
 }
 
-// GetDateBeginUnixTime 获取给定时间当日零点的Unix时间
+// GetDateBeginUnixTime 获取给定时间当前零点的时间
 func GetDateBeginUnixTime(t time.Time) int64 {
 	zeroTime := GetDateBeginTime(t)
 	return zeroTime.Unix()
 }
 
-// GetDateBeginTime 获取给定时间当日零点的时间
+// GetDateBeginTime 获取给定时间当前零点的时间
 func GetDateBeginTime(t time.Time) time.Time {
 	timeStr := t.Format("2006-01-02")
 	zeroTime, _ := time.ParseInLocation("2006-01-02 15:04:05", timeStr+" 00:00:00", GetLocation())
@@ -378,4 +419,34 @@ func GetInterval(startTime, endTime int64, includeWeekend bool) int64 {
 		return interval
 	}
 	return interval
+}
+
+// IsDate 判断给定内容是否是有效的日期格式
+func IsDate(s string) bool {
+	if s == "" {
+		return false
+	}
+	if match, err := regexp.MatchString(datePattern, s); err != nil || !match {
+		return false
+	}
+	_, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		return false
+	}
+	return true
+}
+
+// IsDateTime 判断给定的字符串是否是日期时间格式
+func IsDateTime(s string) bool {
+	if s == "" {
+		return false
+	}
+	if match, err := regexp.MatchString(dateTimePattern, s); err != nil || !match {
+		return false
+	}
+	_, err := time.Parse(time.DateTime, s)
+	if err != nil {
+		return false
+	}
+	return true
 }

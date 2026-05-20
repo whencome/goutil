@@ -10,6 +10,7 @@ import (
     "time"
 )
 
+// define errors
 var (
     ErrInvalidParamType = errors.New("can request with both key-value params and stream params")
 )
@@ -174,7 +175,7 @@ func (c *Client) WithBody(r io.Reader) *Client {
     return c
 }
 
-// ResetParam 重置请求参数
+// ResetParam 设置原始请求参数
 func (c *Client) ResetParam() *Client {
     c.Params = url.Values{}
     c.RawParam = []byte{}
@@ -273,8 +274,8 @@ func (c *Client) buildRequest(method, url string) (*http.Request, error) {
     }
     // 添加cookie信息
     if len(c.Cookies) > 0 {
-        for _, cc := range c.Cookies {
-            request.AddCookie(&http.Cookie{Name: cc.Name, Value: String(cc.Value), HttpOnly: cc.HttpOnly})
+        for _, ck := range c.Cookies {
+            request.AddCookie(&http.Cookie{Name: ck.Name, Value: String(ck.Value), HttpOnly: ck.HttpOnly})
         }
     }
     // 设置http协议版本
@@ -319,6 +320,12 @@ func (c *Client) Request(method string, url string) (*http.Response, error) {
         return c.Get(url)
     case http.MethodPost:
         return c.Post(url)
+    case http.MethodPut:
+        return c.Put(url)
+    case http.MethodHead:
+        return c.Head(url)
+    case http.MethodDelete:
+        return c.Delete(url)
     default:
         return nil, errors.New("request method [" + method + "] not supported")
     }
@@ -349,6 +356,48 @@ func (c *Client) Post(url string) (*http.Response, error) {
     }
     // 构造请求
     request, err := c.initSelf().buildRequest(http.MethodPost, url)
+    if err != nil {
+        return nil, err
+    }
+    // 执行请求
+    return c.Client.Do(request)
+}
+
+// Put 执行http put请求
+func (c *Client) Put(url string) (*http.Response, error) {
+    if c.Error != nil {
+        return nil, c.Error
+    }
+    // 构造请求
+    request, err := c.initSelf().buildRequest(http.MethodPut, url)
+    if err != nil {
+        return nil, err
+    }
+    // 执行请求
+    return c.Client.Do(request)
+}
+
+// Head 执行http head请求
+func (c *Client) Head(url string) (*http.Response, error) {
+    if c.Error != nil {
+        return nil, c.Error
+    }
+    // 构造请求
+    request, err := c.initSelf().buildRequest(http.MethodHead, url)
+    if err != nil {
+        return nil, err
+    }
+    // 执行请求
+    return c.Client.Do(request)
+}
+
+// Delete 执行http delete请求
+func (c *Client) Delete(url string) (*http.Response, error) {
+    if c.Error != nil {
+        return nil, c.Error
+    }
+    // 构造请求
+    request, err := c.initSelf().buildRequest(http.MethodDelete, url)
     if err != nil {
         return nil, err
     }

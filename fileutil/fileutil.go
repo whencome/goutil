@@ -15,7 +15,6 @@ func Exists(fileName string) bool {
 	return true
 }
 
-// DirExists 检查给定的目录是否存在
 func DirExists(path string) bool {
 	fileInfo, err := os.Stat(path)
 	if err != nil {

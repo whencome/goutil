@@ -31,6 +31,62 @@ func CopyStruct(src, dst interface{}) {
 	}
 }
 
+// DeepCopy 深度复制一个值，处理嵌套的map、slice、指针和结构体
+// 返回一个新的独立副本，修改副本不会影响原始值
+func DeepCopy(v interface{}) interface{} {
+	if v == nil {
+		return nil
+	}
+
+	val := reflect.ValueOf(v)
+
+	// 处理指针类型
+	if val.Kind() == reflect.Ptr {
+		if val.IsNil() {
+			return nil
+		}
+		// 递归复制指针指向的值
+		elemCopy := DeepCopy(val.Elem().Interface())
+		// 创建新的指针指向复制后的值
+		newPtr := reflect.New(reflect.TypeOf(elemCopy))
+		newPtr.Elem().Set(reflect.ValueOf(elemCopy))
+		return newPtr.Interface()
+	}
+
+	switch val.Kind() {
+	case reflect.Map:
+		// 创建新的map
+		newMap := make(map[string]interface{})
+		for _, key := range val.MapKeys() {
+			strKey := String(key.Interface())
+			newMap[strKey] = DeepCopy(val.MapIndex(key).Interface())
+		}
+		return newMap
+	case reflect.Slice, reflect.Array:
+		// 创建新的slice，保持原始类型
+		newSlice := reflect.MakeSlice(val.Type(), val.Len(), val.Cap())
+		for i := 0; i < val.Len(); i++ {
+			elemCopy := DeepCopy(val.Index(i).Interface())
+			newSlice.Index(i).Set(reflect.ValueOf(elemCopy))
+		}
+		return newSlice.Interface()
+	case reflect.Struct:
+		// 对于结构体，创建一个新的实例并复制所有字段
+		newStruct := reflect.New(val.Type()).Elem()
+		for i := 0; i < val.NumField(); i++ {
+			field := val.Field(i)
+			if field.CanInterface() {
+				fieldCopy := DeepCopy(field.Interface())
+				newStruct.Field(i).Set(reflect.ValueOf(fieldCopy))
+			}
+		}
+		return newStruct.Interface()
+	default:
+		// 对于基本类型和其他不可变类型，直接返回
+		return v
+	}
+}
+
 // RandString 获取随机字符串
 func RandString(len int) string {
 	r := rand.New(rand.NewSource(time.Now().Unix()))

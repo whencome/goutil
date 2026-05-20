@@ -426,20 +426,20 @@ func (m M) Map() map[string]interface{} {
 	return map[string]interface{}(m)
 }
 
-// Merge 合并数据
+// Merge 合并数据（深拷贝）
 func (m M) Merge(n M) {
 	for k, v := range n {
 		if m.Contains(k) {
 			continue
 		}
-		m[k] = v
+		m[k] = DeepCopy(v)
 	}
 }
 
-// ForceMerge 强制合并数据
+// ForceMerge 强制合并数据（深拷贝）
 func (m M) ForceMerge(n M) {
 	for k, v := range n {
-		m[k] = v
+		m[k] = DeepCopy(v)
 	}
 }
 
