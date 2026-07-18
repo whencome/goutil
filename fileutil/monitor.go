@@ -44,7 +44,7 @@ func (m *FileMonitor) Watch(file string, callback func(f string) error, checkNow
 		ChangeCallback: callback,
 	}
 	dirPath := filepath.Dir(file)
-	if !array.Exists(m.watchDirs, dirPath) {
+	if !array.Contains(m.watchDirs, dirPath) {
 		m.watchDirs = append(m.watchDirs, dirPath)
 	}
 	if checkNow && !goutil.IsNil(callback) {
