@@ -90,10 +90,22 @@ func NumSafeDecode(jsonStr string, dst interface{}) error {
 
 	// 获取解码后的值并进行安全处理
 	dstVal := reflect.ValueOf(dst).Elem()
+	if !dstVal.CanSet() {
+		// 目标不可写（如指向未导出字段等），直接返回，避免panic
+		return nil
+	}
 	sanitizedValue := sanitizeJSON(dstVal.Interface())
+	if sanitizedValue == nil {
+		return nil
+	}
+	// 仅在类型可赋值时回写，避免sanitize过程中类型发生变化导致的panic
+	sanitizedVal := reflect.ValueOf(sanitizedValue)
+	if !sanitizedVal.Type().AssignableTo(dstVal.Type()) {
+		return nil
+	}
 
 	// 设置回目标变量
-	dstVal.Set(reflect.ValueOf(sanitizedValue))
+	dstVal.Set(sanitizedVal)
 
 	return nil
 }

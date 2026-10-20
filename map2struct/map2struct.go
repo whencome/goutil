@@ -1,6 +1,7 @@
 package map2struct
 
 import (
+    "errors"
     "fmt"
     "reflect"
 
@@ -14,6 +15,7 @@ type converter struct {
     PropFieldMap map[string]string // 属性与字段(tag定义)映射关系
     FieldPropMap map[string]string // 字段与属性映射关系
     PropValues   goutil.M          // 属性与值的映射关系
+    err          error             // 初始化过程中的错误信息
 }
 
 // 创建一个转换器
@@ -30,7 +32,12 @@ func newConverter(obj interface{}, tag string) *converter {
 }
 
 // 初始化转换器，提取字段信息
+// 说明：历史实现在obj不是结构体（或结构体指针）时会panic，此处改为记录错误并返回
 func (c *converter) init() {
+    if c.Object == nil {
+        c.err = errors.New("map2struct: object is nil")
+        return
+    }
     // 获取tag中的内容
     rt := reflect.TypeOf(c.Object)
     if rt.Kind() == reflect.Ptr {
@@ -38,7 +45,15 @@ func (c *converter) init() {
     }
     rv := reflect.ValueOf(c.Object)
     if rv.Kind() == reflect.Ptr {
+        if rv.IsNil() {
+            c.err = errors.New("map2struct: object is a nil pointer")
+            return
+        }
         rv = rv.Elem()
+    }
+    if rt.Kind() != reflect.Struct || rv.Kind() != reflect.Struct {
+        c.err = fmt.Errorf("map2struct: object must be a struct or a struct pointer, got %T", c.Object)
+        return
     }
     // 获取字段数量
     fieldsNum := rt.NumField()
@@ -55,10 +70,19 @@ func (c *converter) init() {
                 continue
             }
         }
+        // 未导出字段无法通过反射读取值，直接跳过，避免panic
+        // 注意：这里不能要求字段可写，因为ToMap允许传入非指针的结构体值
+        reflectField := rv.Field(i)
+        if !reflectField.CanInterface() {
+            continue
+        }
+        // 非法字段（如匿名结构体中的冲突字段）跳过
+        if !reflectField.IsValid() {
+            continue
+        }
         c.PropFieldMap[propName] = fieldName
         c.FieldPropMap[fieldName] = propName
         // 获取对应字段的值
-        reflectField := rv.Field(i)
         c.PropValues[propName] = reflectField.Interface()
     }
 }
@@ -79,6 +103,9 @@ func (c *converter) ToMap() goutil.M {
 
 // ToStruct 将map赋值到struct
 func (c *converter) ToStruct(v interface{}) error {
+    if c.err != nil {
+        return c.err
+    }
     // 将数据转换成map
     mapData, err := getMapData(v)
     if err != nil {
@@ -100,7 +127,7 @@ func (c *converter) ToStruct(v interface{}) error {
         }
         // 设置值
         reflectField := rv.FieldByName(propName)
-        if !reflectField.CanSet() {
+        if !reflectField.IsValid() || !reflectField.CanSet() {
             continue
         }
         propTypeKind := reflectField.Kind()
@@ -113,7 +140,7 @@ func (c *converter) ToStruct(v interface{}) error {
             reflectField.SetInt(goutil.Int64(v))
         case reflect.Uint64, reflect.Uint, reflect.Uint32, reflect.Uint16, reflect.Uint8:
             reflectField.SetUint(goutil.Uint64(v))
-        case reflect.Float64:
+        case reflect.Float64, reflect.Float32:
             reflectField.SetFloat(goutil.Float64(v))
         default: // 其他类型暂不支持
             break
@@ -124,14 +151,25 @@ func (c *converter) ToStruct(v interface{}) error {
 
 // getMapData 将给定的参数转换成指定的map格式，如果参数不是支持的类型将报错
 func getMapData(data interface{}) (goutil.M, error) {
+    if data == nil {
+        return nil, errors.New("map2struct: data is nil")
+    }
     if dm, ok := data.(goutil.M); ok {
         return dm, nil
     }
     retData := goutil.M{}
     value := reflect.ValueOf(data)
+    // 支持传入map指针
+    if value.Kind() == reflect.Ptr {
+        if value.IsNil() {
+            return nil, fmt.Errorf("map2struct: data is a nil pointer")
+        }
+        value = value.Elem()
+    }
     if value.Kind() == reflect.Map {
         for _, k := range value.MapKeys() {
-            retData[k.String()] = value.MapIndex(k).Interface()
+            // 使用通用的转换方法，兼容非string类型的key
+            retData[goutil.String(k.Interface())] = value.MapIndex(k).Interface()
         }
     } else {
         return nil, fmt.Errorf("unsupported data type %T of %#v", data, data)

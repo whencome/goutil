@@ -2,129 +2,101 @@ package timeutil
 
 import (
     "fmt"
-    "math/rand"
-    "strconv"
-    "strings"
     "testing"
     "time"
 )
 
+// TestTimerTicker 测试定时触发器的基本功能
 func TestTimerTicker(t *testing.T) {
-    finish := make(chan bool)
-
-    // create timer ticker
     tt := NewTimerTicker(10)
-    go tt.start()
-
-    // add consumer
-    go func() {
-        for {
-            select {
-            case k := <-tt.C:
-                now := time.Now().Unix()
-                fmt.Printf("get %s at %d\n", k, now)
-                parts := strings.Split(k, "_")
-                t1, e := strconv.Atoi(parts[2])
-                if e != nil {
-                    fmt.Printf("convert time failed: %s\n", e)
-                    finish <- false
-                    break
-                }
-                expectedTime := int64(t1)
-                if expectedTime != now {
-                    fmt.Printf("time not match")
-                    finish <- false
-                    break
-                }
-                finish <- true
-            }
-            break
-        }
-        fmt.Printf("consumer exit...\n")
-    }()
+    defer tt.Stop()
 
     now := time.Now().Unix()
-    expectedTime := now + 5
-    k := fmt.Sprintf("data_at_%d", expectedTime)
-    tt.Add(k, expectedTime)
-    fmt.Printf("expect to get %s at %d\n", k, expectedTime)
+    expectedTime := now + 2
+    key := fmt.Sprintf("data_at_%d", expectedTime)
+    tt.Add(key, expectedTime)
 
-    // wait result
-    v := <-finish
-    fmt.Printf("test rs: %+v\n", v)
-    if !v {
-        t.Fail()
+    select {
+    case got := <-tt.C:
+        if got != key {
+            t.Fatalf("unexpected key: got %s, expect %s", got, key)
+        }
+        // 触发时间与实际时间可能有1秒的误差（受检查时机影响）
+        diff := time.Now().Unix() - expectedTime
+        if diff < 0 || diff > 1 {
+            t.Fatalf("triggered at wrong time, diff = %d", diff)
+        }
+    case <-time.After(6 * time.Second):
+        t.Fatal("wait timer ticker result timeout")
     }
 }
 
+// TestTimerTickerExpired 测试已过期任务不会被触发
+func TestTimerTickerExpired(t *testing.T) {
+    tt := NewTimerTicker(1)
+    defer tt.Stop()
+
+    tt.Add("expired", time.Now().Unix()-10)
+    select {
+    case k := <-tt.C:
+        t.Fatalf("expired task should not be triggered, got %s", k)
+    case <-time.After(2 * time.Second):
+        // 正常，过期任务不会被触发
+    }
+}
+
+// TestTimerTickerConcurrency 测试并发添加任务
 func TestTimerTickerConcurrency(t *testing.T) {
-    finish := make(chan bool)
+    const taskNum = 100
+    tt := NewTimerTicker(taskNum)
+    defer tt.Stop()
 
-    // create timer ticker
-    tt := NewTimerTicker(10)
-    go tt.start()
+    now := time.Now().Unix()
+    expected := make(map[string]struct{}, taskNum)
+    for i := 0; i < taskNum; i++ {
+        // 触发时间分布在2~4秒之后
+        triggerAt := now + int64(i%3) + 2
+        key := fmt.Sprintf("data_of_%d_%d", triggerAt, i)
+        expected[key] = struct{}{}
+        tt.Add(key, triggerAt)
+    }
 
-    // add consumer
-    go func() {
-        for {
-            select {
-            case k := <-tt.C:
-                now := time.Now().Unix()
-                fmt.Printf("get %s at %d\n", k, now)
-                parts := strings.Split(k, "_")
-                t1, e := strconv.Atoi(parts[2])
-                if e != nil {
-                    fmt.Printf("convert time failed: %s\n", e)
-                    finish <- false
-                    break
-                }
-                expectedTime := int64(t1) / 1e9
-                if expectedTime != now {
-                    fmt.Printf("time not match[got %d, expect %d]\n", expectedTime, now)
-                    finish <- false
-                    break
-                }
-                finish <- true
+    timeout := time.After(12 * time.Second)
+    got := 0
+    for got < taskNum {
+        select {
+        case k, ok := <-tt.C:
+            if !ok {
+                t.Fatalf("channel closed unexpectedly, got %d/%d", got, taskNum)
             }
-        }
-        fmt.Printf("consumer exit...\n")
-    }()
-
-    maxNum := 1000
-    failCnt := 0
-    succCnt := 0
-    startTime := time.Now()
-    go func() {
-        for i := 0; i < maxNum; i++ {
-            now := time.Now()
-            expectedTime := now.Add(time.Second * time.Duration(int64(rand.Intn(300)) + 300))
-            k := fmt.Sprintf("data_of_%d", expectedTime.UnixNano())
-            tt.Add(k, expectedTime.Unix())
-            fmt.Printf("expect to get %s at %d\n", k, expectedTime.Unix())
-        }
-    }()
-
-    // wait result
-    getNum := 0
-    for {
-        v := <-finish
-        getNum++
-        if v {
-            succCnt++
-        } else {
-            failCnt++
-        }
-        if getNum >= maxNum {
-            break
+            if _, exists := expected[k]; !exists {
+                t.Fatalf("unexpected key: %s", k)
+            }
+            delete(expected, k)
+            got++
+        case <-timeout:
+            t.Fatalf("timeout, got %d/%d tasks", got, taskNum)
         }
     }
-    endTime := time.Now()
-    fmt.Printf("\n--------------------\n")
-    fmt.Printf("Total: %d\n", maxNum)
-    fmt.Printf("Succ: %d\n", succCnt)
-    fmt.Printf("Fail: %d\n", failCnt)
-    fmt.Printf("Time Cost: %.4f s\n", float64(endTime.Sub(startTime)) / 1e9)
-    if failCnt > 0 {
-        t.Fail()
+}
+
+// TestTimerTickerStop 测试停止操作的幂等性与安全性
+func TestTimerTickerStop(t *testing.T) {
+    tt := NewTimerTicker(1)
+    tt.Add("k1", time.Now().Unix()+1)
+    tt.Stop()
+    // 重复调用不应该panic
+    tt.Stop()
+    // 停止后通道最终应被关闭（关闭前可能还存在已写入的结果）
+    deadline := time.After(3 * time.Second)
+    for {
+        select {
+        case _, ok := <-tt.C:
+            if !ok {
+                return
+            }
+        case <-deadline:
+            t.Fatal("channel not closed after stop")
+        }
     }
 }

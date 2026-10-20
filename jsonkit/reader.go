@@ -75,7 +75,8 @@ func Get(js, path string) interface{} {
 				return nil
 			}
 			sv, ok := s.([]interface{})
-			if !ok || len(sv) < idx {
+			// 注意：idx等于len(sv)时同样属于越界，历史实现使用len(sv) < idx判断会导致切片越界panic
+			if !ok || idx >= len(sv) {
 				return nil
 			}
 			val := sv[idx]

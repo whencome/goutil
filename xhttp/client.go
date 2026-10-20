@@ -241,23 +241,27 @@ func (c *Client) addParam(key string, val interface{}) {
 }
 
 // buildRequest 构造请求信息
+// 说明：GET/HEAD/DELETE/OPTIONS 的参数会拼接到URL的query中，其它方法（POST/PUT/PATCH等）的参数会作为表单正文；
+// 如果设置了Body，则Body优先，参数不会再被附加
 func (c *Client) buildRequest(method, url string) (*http.Request, error) {
     queryString := c.buildQueryString()
     var body io.Reader
+    formBody := false
     if c.Body != nil {
         body = c.Body
-    } else {
-        if queryString != "" {
-            if method == http.MethodGet {
-                if strings.Contains(url, "?") {
-                    url += "&"
-                } else {
-                    url += "?"
-                }
-                url += queryString
-            } else if method == http.MethodPost {
-                body = strings.NewReader(queryString)
+    } else if queryString != "" {
+        switch method {
+        case http.MethodGet, http.MethodHead, http.MethodDelete, http.MethodOptions:
+            if strings.Contains(url, "?") {
+                url += "&"
+            } else {
+                url += "?"
             }
+            url += queryString
+        default:
+            // POST/PUT/PATCH等方法将参数作为表单正文
+            body = strings.NewReader(queryString)
+            formBody = true
         }
     }
 
@@ -271,6 +275,10 @@ func (c *Client) buildRequest(method, url string) (*http.Request, error) {
         for k, v := range c.Headers {
             request.Header.Set(k, v)
         }
+    }
+    // 参数作为表单正文时，补充默认的Content-Type，防止服务端无法解析
+    if formBody && request.Header.Get("Content-Type") == "" {
+        request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
     }
     // 添加cookie信息
     if len(c.Cookies) > 0 {
@@ -322,6 +330,8 @@ func (c *Client) Request(method string, url string) (*http.Response, error) {
         return c.Post(url)
     case http.MethodPut:
         return c.Put(url)
+    case http.MethodPatch:
+        return c.Patch(url)
     case http.MethodHead:
         return c.Head(url)
     case http.MethodDelete:
@@ -350,12 +360,23 @@ func (c *Client) Post(url string) (*http.Response, error) {
     if c.Error != nil {
         return nil, c.Error
     }
-    // 添加默认头信息，防止post方式服务器端收不到数据
-    if _, ok := c.Headers["Content-Type"]; !ok {
-        c.Headers["Content-Type"] = "application/x-www-form-urlencoded"
+    // 构造请求（默认的Content-Type由buildRequest统一处理，避免直接修改Headers导致并发问题）
+    request, err := c.initSelf().buildRequest(http.MethodPost, url)
+    if err != nil {
+        return nil, err
+    }
+    // 执行请求
+    return c.Client.Do(request)
+}
+
+// Patch 执行http patch请求
+// 说明：参数会作为表单正文提交，若已通过WithBody设置正文，则以Body为准
+func (c *Client) Patch(url string) (*http.Response, error) {
+    if c.Error != nil {
+        return nil, c.Error
     }
     // 构造请求
-    request, err := c.initSelf().buildRequest(http.MethodPost, url)
+    request, err := c.initSelf().buildRequest(http.MethodPatch, url)
     if err != nil {
         return nil, err
     }

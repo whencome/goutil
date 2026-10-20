@@ -4,6 +4,7 @@ import (
     "io"
     "os"
     "strings"
+    "sync"
     "time"
 
     rotatelogs "github.com/lestrrat-go/file-rotatelogs"
@@ -19,6 +20,12 @@ var defaultConfig = &Config{
     MaxKeepTime:  "",
 }
 
+// 文件输出writer缓存，避免重复调用GetOutput时创建多个文件句柄（历史实现每次调用都会新建writer）
+var (
+    writerMu    sync.Mutex
+    writerCache = make(map[string]io.Writer)
+)
+
 // Config 定义简单的日志配置
 type Config struct {
     Level        string `yaml:"level" json:"level" toml:"level"`                         // 日志级别
@@ -32,7 +39,7 @@ type Config struct {
 // GetRotationTime 获取切割时间，默认24小时切割一次
 func (c *Config) GetRotationTime() time.Duration {
     d, e := time.ParseDuration(c.RotationTime)
-    if e != nil {
+    if e != nil || d <= 0 {
         return time.Duration(24) * time.Hour
     }
     return d
@@ -41,7 +48,7 @@ func (c *Config) GetRotationTime() time.Duration {
 // GetMaxKeepTime 获取日志文件最大保存时间，默认30天
 func (c *Config) GetMaxKeepTime() time.Duration {
     d, e := time.ParseDuration(c.MaxKeepTime)
-    if e != nil {
+    if e != nil || d <= 0 {
         return time.Duration(30*24) * time.Hour
     }
     return d
@@ -73,7 +80,13 @@ func (c *Config) GetOutput() io.Writer {
         	`WithMaxAge` 设置文件清理前的最长保存时间
         	`WithRotationCount` 设置文件清理前最多保存的个数
         */
-        // 下面配置日志每隔 1 分钟轮转一个新文件，保留最近 3 分钟的日志文件，多余的自动清理掉。
+        // 日志文件按分钟命名，并根据配置的切割时间与最大保存时间进行轮转与清理
+        cacheKey := c.Path + "|" + c.RotationTime + "|" + c.MaxKeepTime
+        writerMu.Lock()
+        defer writerMu.Unlock()
+        if w, ok := writerCache[cacheKey]; ok {
+            return w
+        }
         writer, err := rotatelogs.New(
             c.Path+".%Y%m%d%H%M",
             rotatelogs.WithLinkName(c.Path),
@@ -84,6 +97,7 @@ func (c *Config) GetOutput() io.Writer {
             // if fail, return os.Stdout as default
             return os.Stdout
         }
+        writerCache[cacheKey] = writer
         return writer
     default:
         return os.Stdout

@@ -45,16 +45,23 @@ func BuildUrl(host, path string) string {
 }
 
 // Download 下载指定地址的文件到本地
+// 注意：历史实现中请求失败时会返回nil（错误被吞掉），此处已修正为返回真实错误
 func Download(remoteUrl, localPath string) error {
     resp, err := NewClient().Get(remoteUrl)
     if err != nil {
-        return nil
+        return err
     }
     defer resp.Body.Close()
+    // 非2xx状态码视为失败，避免把错误页面写入本地文件
+    if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+        return fmt.Errorf("download [%s] failed: http status %d", remoteUrl, resp.StatusCode)
+    }
     // Create the file
     localDir := path.Dir(localPath)
-    if err := os.MkdirAll(localDir, 0755); err != nil {
-        return err
+    if localDir != "" && localDir != "." {
+        if err := os.MkdirAll(localDir, 0755); err != nil {
+            return err
+        }
     }
     file, err := os.Create(localPath)
     if err != nil {
@@ -106,6 +113,8 @@ func Upload(localFile string, serverUrl string, fileField string) (string, error
     if err != nil {
         return "", err
     }
+    // 必须关闭响应正文，否则会造成连接泄漏
+    defer resp.Body.Close()
 
     // Read the response body
     respBody, err := io.ReadAll(resp.Body)

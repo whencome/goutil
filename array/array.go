@@ -70,9 +70,11 @@ func UniqueAndFilter[T comparable](arr []T) []T {
 }
 
 // Chunk 将给定的切片拆分成指定大小size的二维切片
+// 注意：当size小于等于0时，历史实现会因步长为0而进入死循环，此处修正为直接返回包含原切片的二维切片；
+// 当原切片为空时，返回一个包含空切片的二维切片
 func Chunk[T any](arr []T, size int) [][]T {
     arraySize := len(arr)
-    if arraySize <= size {
+    if size <= 0 || arraySize <= size {
         return [][]T{arr}
     }
 

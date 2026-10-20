@@ -185,7 +185,13 @@ func GetRsaPrivateKey(privateKey []byte) (*rsa.PrivateKey, error) {
         if e != nil {
             err = e
         } else {
-            priKey = theKey.(*rsa.PrivateKey)
+            // 注意：非RSA类型的私钥（如EC私钥）直接断言会panic，此处必须做类型判断
+            rsaKey, ok := theKey.(*rsa.PrivateKey)
+            if !ok {
+                err = errors.New("illegal rsa private key")
+            } else {
+                priKey = rsaKey
+            }
         }
     default:
         err = errors.New("unsupported private key format")
@@ -206,11 +212,17 @@ func GetRsaPublicKey(publicKey []byte) (*rsa.PublicKey, error) {
     case PKCS1:
         pubKey, err = x509.ParsePKCS1PublicKey(block.Bytes)
     case PKCS8:
-        pubInterface, err := x509.ParsePKIXPublicKey(block.Bytes)
-        if err != nil {
-            return nil, errors.New("parse public key failed")
+        pubInterface, e := x509.ParsePKIXPublicKey(block.Bytes)
+        if e != nil {
+            return nil, fmt.Errorf("parse public key failed: %v", e)
         }
-        pubKey = pubInterface.(*rsa.PublicKey) //pub:公钥对象
+        // 注意：非RSA类型的公钥（如EC公钥）直接断言会panic，此处必须做类型判断
+        rsaKey, ok := pubInterface.(*rsa.PublicKey)
+        if !ok {
+            return nil, errors.New("illegal rsa public key")
+        }
+        pubKey = rsaKey //pub:公钥对象
+        err = nil
     default:
         err = errors.New("unsupported public key format")
     }

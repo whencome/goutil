@@ -35,6 +35,11 @@ func AESCBCDecrypt(cipherTxt []byte, key []byte) ([]byte, error) {
     plaintext := make([]byte, len(cipherTxt))
     mode.CryptBlocks(plaintext, cipherTxt)
 
+    // 校验填充，避免密钥错误等情况下返回无意义的数据（历史实现会直接去填充，甚至panic）
+    if len(plaintext) == 0 || !isValidPKCS7Padding(plaintext) {
+        return nil, fmt.Errorf("invalid padding, maybe the key is incorrect")
+    }
+
     // 删除填充
     plaintext = PKCS7UnPadding(plaintext)
     return plaintext, nil
@@ -104,6 +109,11 @@ func AesECBDecrypt(encrypted []byte, key []byte) ([]byte, error) {
     data := make([]byte, len(encrypted))
     for i := 0; i < len(encrypted); i += bs {
         block.Decrypt(data[i:i+bs], encrypted[i:i+bs])
+    }
+
+    // 校验填充，避免密钥错误等情况下返回无意义的数据
+    if len(data) == 0 || !isValidPKCS7Padding(data) {
+        return nil, fmt.Errorf("invalid padding, maybe the key is incorrect")
     }
 
     data = PKCS7UnPadding(data)

@@ -1,7 +1,6 @@
 package fileutil
 
 import (
-	"bufio"
 	"errors"
 	"io"
 	"os"
@@ -31,10 +30,15 @@ type Dir struct {
 
 // visit 浏览文件 区分为目录和文件
 func (my *Dir) visit(path string, f os.FileInfo, err error) error {
-	tmpPath := strings.Replace(path, my.ParentName, "", 1)
 	if f == nil {
 		return err
 	}
+	if err != nil {
+		return err
+	}
+	// 仅去除路径前缀，避免使用Replace时误伤路径中间出现的相同字符串
+	tmpPath := strings.TrimPrefix(path, my.ParentName)
+	tmpPath = strings.TrimLeft(tmpPath, string(os.PathSeparator))
 	if f.IsDir() {
 		my.DirList = append(my.DirList, WalkFile{Fname: tmpPath, Fmode: f.Mode()})
 	} else if (f.Mode() & os.ModeSymlink) > 0 {
@@ -77,24 +81,19 @@ func (my *Dir) CopyFile(src string, dst string, mode os.FileMode) error {
 	defer func() {
 		_ = srcFile.Close()
 	}()
-	// 通过srcFile，获取到READER
-	reader := bufio.NewReader(srcFile)
-	// 打开dstFileName
-	dstFile, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE, mode)
+	// 打开目标文件（使用O_TRUNC，确保目标文件内容被完全覆盖，不会残留旧数据）
+	dstFile, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 	if err != nil {
 		return err
 	}
-	// 通过dstFile，获取到WRITER
-	writer := bufio.NewWriter(dstFile)
-
-	defer func() {
-		writer.Flush()
+	// 直接拷贝到文件句柄，避免使用bufio时Flush错误被忽略
+	if _, copyErr := io.Copy(dstFile, srcFile); copyErr != nil {
 		_ = dstFile.Close()
-	}()
-
-	_, copyErr := io.Copy(writer, reader)
-	if copyErr != nil {
 		return copyErr
+	}
+	// 关闭文件，确保数据刷入磁盘，并返回关闭时的错误
+	if closeErr := dstFile.Close(); closeErr != nil {
+		return closeErr
 	}
 	// 修改权限
 	chmodErr := os.Chmod(dst, mode)

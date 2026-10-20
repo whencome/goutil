@@ -10,6 +10,8 @@ import (
 
 func init() {
 	// 启动模糊模式，支持更宽松的json解析
+	// 注意：RegisterFuzzyDecoders 会修改jsoniter的全局注册表，对进程内其它使用jsoniter的代码同样生效，
+	// 例如允许将字符串 "123" 解析到int字段。若不希望影响全局行为，请仅在独立进程中引入此包。
 	jsoniterExtra.RegisterFuzzyDecoders()
 }
 
@@ -58,6 +60,8 @@ func Decode(data string, v any) error {
 }
 
 // MarshalSorted 将任意对象v进行json编码，并对key进行排序
+// 注意：返回结果不包含结尾的换行符（历史实现通过json.Encoder编码会附带换行符，此处已去除，
+// 以保证与Marshal的输出风格一致）
 func MarshalSorted(v interface{}) ([]byte, error) {
 	var buf bytes.Buffer
 	encoder := json.NewEncoder(&buf)
@@ -85,7 +89,8 @@ func MarshalSorted(v interface{}) ([]byte, error) {
 		return nil, err
 	}
 
-	return resultBuf.Bytes(), nil
+	// 去除json.Encoder附加的换行符
+	return bytes.TrimRight(resultBuf.Bytes(), "\r\n"), nil
 }
 
 // sortMapKeys 对json的key进行排序

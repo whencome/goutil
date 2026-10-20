@@ -3,6 +3,7 @@ package cachex
 import (
     "fmt"
     "strings"
+    "sync"
 
     "github.com/gomodule/redigo/redis"
     "github.com/whencome/goutil"
@@ -14,8 +15,11 @@ const (
 	NoPrefixKey = "!<:"
 )
 
-// cacheKeyPrefix 设置缓存key的前缀
-var cacheKeyPrefix = "cachex"
+// cacheKeyPrefix 缓存key的前缀
+var (
+	cacheKeyPrefix   = "cachex"
+	cacheKeyPrefixMu sync.RWMutex
+)
 
 // Provider 定义redis数据提供对象接口
 type Provider interface {
@@ -27,7 +31,9 @@ type BizFunc func() (interface{}, error)
 
 // SetCacheKeyPrefix 设置缓存key的前缀
 func SetCacheKeyPrefix(prefix string) {
+	cacheKeyPrefixMu.Lock()
 	cacheKeyPrefix = prefix
+	cacheKeyPrefixMu.Unlock()
 }
 
 // getCacheKey 获取一个完整的cache key
@@ -37,8 +43,11 @@ func getCacheKey(k string) string {
 		return k[len(NoPrefixKey):]
 	}
 	// 添加前缀
-	if cacheKeyPrefix != "" {
-		k = cacheKeyPrefix + ":" + k
+	cacheKeyPrefixMu.RLock()
+	prefix := cacheKeyPrefix
+	cacheKeyPrefixMu.RUnlock()
+	if prefix != "" {
+		k = prefix + ":" + k
 	}
 	return k
 }
@@ -148,13 +157,29 @@ func PUnlock(provider Provider, cacheKey string) (bool, error) {
 	return Unlock(rds, cacheKey)
 }
 
+// unlockScript 用于安全释放锁：只有锁的持有者（value与加锁时一致）才能删除锁，
+// 避免锁过期后被其它调用方持有，而原持有者误删他人的锁
+var unlockScript = redis.NewScript(1, `
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+	return redis.call("DEL", KEYS[1])
+else
+	return 0
+end`)
+
 // LockCall 带有锁的调用，当存在并发调用可能时，先寻求获得cacheKey对应的锁，如果获取失败，则无法执行
-// autoUnlock - 标记是否自动释放锁（仅限请求成功时），如果不自动释放，则需要等待锁自动过期释放，此参数可以用于防止重复提交等场景
+// autoUnlock - 标记是否自动释放锁，如果为true，则无论业务方法执行成功与否都会释放（执行完毕即释放）；
+// 如果不自动释放，则需要等待锁自动过期释放，此参数可以用于防止重复提交等场景
 func LockCall(ret interface{}, rds redis.Conn, cacheKey string, expire int64, autoUnlock bool, bf BizFunc) error {
 	cacheKey = getCacheKey(cacheKey)
 
+	// 生成锁标识，用于保证只释放自己持有的锁
+	token, err := newLockToken()
+	if err != nil {
+		return err
+	}
+
 	// 使用 SET key value NX EX 实现原子性加锁
-	lockRs, err := rds.Do("SET", cacheKey, "locked", "EX", expire, "NX")
+	lockRs, err := rds.Do("SET", cacheKey, token, "EX", expire, "NX")
 	if err != nil {
 		return err
 	}
@@ -162,12 +187,12 @@ func LockCall(ret interface{}, rds redis.Conn, cacheKey string, expire int64, au
 		return fmt.Errorf("请求失败，请稍后再试")
 	}
 
-	// 确保即使出错也能释放锁（除非等待超时释放）
-	defer func() {
-		if autoUnlock {
-			rds.Do("DEL", cacheKey)
-		}
-	}()
+	// 确保即使出错也能释放锁（除非使用方选择等待超时释放）
+	if autoUnlock {
+		defer func() {
+			_, _ = unlockScript.Do(rds, cacheKey, token)
+		}()
+	}
 
 	// 执行业务逻辑
 	resp, err := bf()
@@ -177,7 +202,6 @@ func LockCall(ret interface{}, rds redis.Conn, cacheKey string, expire int64, au
 
 	// 处理空值情况
 	if goutil.IsNil(resp) {
-		ret = nil
 		return nil
 	}
 
@@ -194,6 +218,15 @@ func LockCall(ret interface{}, rds redis.Conn, cacheKey string, expire int64, au
 	}
 
 	return nil
+}
+
+// newLockToken 生成一个锁的唯一标识
+func newLockToken() (string, error) {
+	token, err := goutil.RandStringSecure(32)
+	if err != nil {
+		return "", err
+	}
+	return token, nil
 }
 
 // PLockCall 带有锁的调用
@@ -302,20 +335,25 @@ func Incr(rds redis.Conn, cacheKey string) (int64, error) {
 	return redis.Int64(rds.Do("INCR", cacheKey))
 }
 
+// PIncr 对指定的key的数值加1（使用provider获取连接，并自行关闭连接）
 func PIncr(provider Provider, cacheKey string) (int64, error) {
-	cacheKey = getCacheKey(cacheKey)
-	return redis.Int64(provider.Redis().Do("INCR", cacheKey))
+	rds := provider.Redis()
+	defer rds.Close()
+	return Incr(rds, cacheKey)
 }
 
 // Decr 对指定的key的数值减1
+// 注意：历史实现误用了INCR指令（实际执行的是加1），此处已修正为DECR
 func Decr(rds redis.Conn, cacheKey string) (int64, error) {
 	cacheKey = getCacheKey(cacheKey)
-	return redis.Int64(rds.Do("INCR", cacheKey))
+	return redis.Int64(rds.Do("DECR", cacheKey))
 }
 
+// PDecr 对指定的key的数值减1（使用provider获取连接，并自行关闭连接）
 func PDecr(provider Provider, cacheKey string) (int64, error) {
-	cacheKey = getCacheKey(cacheKey)
-	return redis.Int64(provider.Redis().Do("INCR", cacheKey))
+	rds := provider.Redis()
+	defer rds.Close()
+	return Decr(rds, cacheKey)
 }
 
 // SetBit 设置或清除指定偏移量上的位(bit)。位的设置或清除取决于 value，可以是 0 或者是 1 。
@@ -367,6 +405,7 @@ func PHSet(provider Provider, cacheKey, field, value string) error {
 }
 
 // HGet 实现 redis 的 HGET 指令
+// 注意：当字段不存在时，返回空字符串与nil错误（不会返回redis.ErrNil），调用方需要通过业务逻辑区分空值与不存在
 func HGet(rds redis.Conn, cacheKey, field string) (string, error) {
 	cacheKey = getCacheKey(cacheKey)
 	reply, err := rds.Do("HGET", cacheKey, field)

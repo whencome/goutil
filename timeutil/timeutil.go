@@ -4,6 +4,7 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/whencome/goutil"
@@ -34,13 +35,26 @@ func (tr TimeRange) Dates() []string {
 	return dates
 }
 
-// GetLocation 获取系统使用的时区信息
+// 时区信息只需要加载一次，避免每次调用都读取时区数据文件（time.LoadLocation没有内部缓存）
+var (
+	locationOnce sync.Once
+	locationVal  *time.Location
+)
+
+// GetLocation 获取系统使用的时区信息（Asia/Shanghai）
+// 说明：时区信息只会加载一次，加载失败时回退到系统本地时区
 func GetLocation() *time.Location {
-	location, err := time.LoadLocation("Asia/Shanghai")
-	if err != nil {
+	locationOnce.Do(func() {
+		location, err := time.LoadLocation("Asia/Shanghai")
+		if err != nil {
+			location = time.Local
+		}
+		locationVal = location
+	})
+	if locationVal == nil {
 		return time.Local
 	}
-	return location
+	return locationVal
 }
 
 // Now 获取当前时间（指定时区）

@@ -2,18 +2,18 @@ package log
 
 import (
     "fmt"
-    "github.com/sirupsen/logrus"
-    gormlog "gorm.io/gorm/logger"
+    "path/filepath"
     "runtime"
     "strings"
-    "sync"
+    "sync/atomic"
+
+    "github.com/sirupsen/logrus"
+    gormlog "gorm.io/gorm/logger"
 )
 
 // stdLogger a instance of Logger, this make sure you can directly call log.XXX function
-var stdLogger Logger
-
-// a locker
-var mu sync.Mutex
+// 使用atomic.Value存储，保证在New/Instance与日志输出并发时的读取安全（避免数据竞争）
+var stdLogger atomic.Value
 
 // Fields define a map to store log data
 type Fields map[string]interface{}
@@ -58,12 +58,21 @@ type Logger interface {
 }
 
 func init() {
-    stdLogger = New(&Config{})
+    stdLogger.Store(Instance(&Config{}))
+}
+
+// loggerInstance 获取当前的全局logger实例
+// 若全局logger尚未初始化（理论上只可能出现在init执行期间），则返回一个默认实例
+func loggerInstance() Logger {
+    if l, ok := stdLogger.Load().(Logger); ok && l != nil {
+        return l
+    }
+    return Instance(&Config{})
 }
 
 // DefaultLogger 创建一个默认的logger
 func DefaultLogger() Logger {
-    return stdLogger
+    return loggerInstance()
 }
 
 // New create a logger
@@ -71,10 +80,8 @@ func DefaultLogger() Logger {
 // 如果需要使用不同的logger，使用下面的Instance方法
 func New(c *Config) Logger {
     logger := Instance(c)
-    mu.Lock()
-    stdLogger = logger
-    mu.Unlock()
-    return stdLogger
+    stdLogger.Store(logger)
+    return logger
 }
 
 // Instance create a logger instance, this won't bind to the default stdLogger, means that you will get a really new logger
@@ -118,25 +125,58 @@ func (l *defaultLogger) WithFields(fields map[string]interface{}) Logger {
     }
 }
 
+// logPackageDir 当前日志包所在的目录，用于在获取调用栈时跳过包内部的调用帧
+// 通过运行时信息获取，可兼容不同的模块路径以及Windows风格的路径分隔符
+var logPackageDir = func() string {
+    _, file, _, ok := runtime.Caller(0)
+    if !ok || file == "" {
+        return ""
+    }
+    return filepath.Dir(file)
+}()
+
+// inLogPackage 判断给定的文件是否属于日志包
+// 说明：统一转换为"/"分隔后再比较，兼容Windows路径以及-trimpath编译后的相对路径
+func inLogPackage(file string) bool {
+    if file == "" {
+        return false
+    }
+    file = strings.ReplaceAll(file, "\\", "/")
+    dir := strings.ReplaceAll(logPackageDir, "\\", "/")
+    if dir == "" {
+        // 兜底处理
+        return strings.Contains(file, "/goutil/log/")
+    }
+    if file == dir {
+        return true
+    }
+    return strings.HasPrefix(file, dir+"/")
+}
+
 // WithStack 增加调用栈信息
+// 说明：会跳过日志包内部的调用帧，将第一个包外的调用位置记录到caller字段中
 func WithStack(l Logger) Logger {
+    if l == nil {
+        l = loggerInstance()
+    }
     var pc uintptr
     var codePath, prevCodePath, prevFuncName string
     var codeLine, prevCodeLine int
     var ok bool
-    for skip := 1; true; skip++ {
+    for skip := 1; ; skip++ {
         pc, codePath, codeLine, ok = runtime.Caller(skip)
         if !ok {
             // 不ok，函数栈用尽了
             break
-        } else {
-            prevCodePath = codePath
-            prevCodeLine = codeLine
-            prevFuncName = runtime.FuncForPC(pc).Name()
-            if !strings.Contains(prevCodePath, "/goutil/log") {
-                // 找到包外的函数了
-                break
-            }
+        }
+        prevCodePath = codePath
+        prevCodeLine = codeLine
+        if fn := runtime.FuncForPC(pc); fn != nil {
+            prevFuncName = fn.Name()
+        }
+        if !inLogPackage(codePath) {
+            // 找到包外的函数了
+            break
         }
     }
     if prevFuncName != "" {
@@ -147,98 +187,98 @@ func WithStack(l Logger) Logger {
 }
 
 func WithField(key string, value interface{}) Logger {
-    return stdLogger.WithField(key, value)
+    return loggerInstance().WithField(key, value)
 }
 
 func WithFields(fields map[string]interface{}) Logger {
-    return stdLogger.WithFields(fields)
+    return loggerInstance().WithFields(fields)
 }
 
 // Entry Print family functions
 func Debug(args ...interface{}) {
-    WithStack(stdLogger).Debug(args...)
+    WithStack(loggerInstance()).Debug(args...)
 }
 
 func Print(args ...interface{}) {
-    WithStack(stdLogger).Print(args...)
+    WithStack(loggerInstance()).Print(args...)
 }
 
 func Info(args ...interface{}) {
-    WithStack(stdLogger).Info(args...)
+    WithStack(loggerInstance()).Info(args...)
 }
 
 func Warn(args ...interface{}) {
-    WithStack(stdLogger).Warn(args...)
+    WithStack(loggerInstance()).Warn(args...)
 }
 
 func Error(args ...interface{}) {
-    WithStack(stdLogger).Error(args...)
+    WithStack(loggerInstance()).Error(args...)
 }
 
 func Fatal(args ...interface{}) {
-    WithStack(stdLogger).Fatal(args...)
+    WithStack(loggerInstance()).Fatal(args...)
 }
 
 func Panic(args ...interface{}) {
-    WithStack(stdLogger).Panic(args...)
+    WithStack(loggerInstance()).Panic(args...)
 }
 
 // Entry Printf family functions
 func Debugf(format string, args ...interface{}) {
-    WithStack(stdLogger).Debugf(format, args...)
+    WithStack(loggerInstance()).Debugf(format, args...)
 }
 
 func Printf(format string, args ...interface{}) {
-    WithStack(stdLogger).Printf(format, args...)
+    WithStack(loggerInstance()).Printf(format, args...)
 }
 
 func Infof(format string, args ...interface{}) {
-    WithStack(stdLogger).Infof(format, args...)
+    WithStack(loggerInstance()).Infof(format, args...)
 }
 
 func Warnf(format string, args ...interface{}) {
-    WithStack(stdLogger).Warnf(format, args...)
+    WithStack(loggerInstance()).Warnf(format, args...)
 }
 
 func Errorf(format string, args ...interface{}) {
-    WithStack(stdLogger).Errorf(format, args...)
+    WithStack(loggerInstance()).Errorf(format, args...)
 }
 
 func Fatalf(format string, args ...interface{}) {
-    WithStack(stdLogger).Fatalf(format, args...)
+    WithStack(loggerInstance()).Fatalf(format, args...)
 }
 
 func Panicf(format string, args ...interface{}) {
-    WithStack(stdLogger).Panicf(format, args...)
+    WithStack(loggerInstance()).Panicf(format, args...)
 }
 
 // Entry Println family functions
 func Debugln(args ...interface{}) {
-    WithStack(stdLogger).Panic(args...)
+    WithStack(loggerInstance()).Debugln(args...)
 }
 
 func Println(args ...interface{}) {
-    WithStack(stdLogger).Println(args...)
+    WithStack(loggerInstance()).Println(args...)
 }
 
 func Infoln(args ...interface{}) {
-    WithStack(stdLogger).Infoln(args...)
+    WithStack(loggerInstance()).Infoln(args...)
 }
 
 func Warnln(args ...interface{}) {
-    WithStack(stdLogger).Warnln(args...)
+    WithStack(loggerInstance()).Warnln(args...)
 }
 
 func Errorln(args ...interface{}) {
-    WithStack(stdLogger).Errorln(args...)
+    WithStack(loggerInstance()).Errorln(args...)
 }
 
 func Fatalln(args ...interface{}) {
-    WithStack(stdLogger).Fatalln(args...)
+    WithStack(loggerInstance()).Fatalln(args...)
 }
 
 func Panicln(args ...interface{}) {
-    WithStack(stdLogger).Panicln(args...)
+    WithStack(loggerInstance()).Panicln(args...)
 }
 
 // WithGormLogger 实现gorm日志接口
@@ -250,7 +290,7 @@ func WithGormLogger(level gormlog.LogLevel) gormlog.Interface {
         ParameterizedQueries:      false,
         LogLevel:                  level,
     }
-    return gormlog.New(stdLogger, conf)
+    return gormlog.New(loggerInstance(), conf)
 }
 
 // Log 实现gokratos日志接口

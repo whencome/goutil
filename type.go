@@ -127,13 +127,25 @@ func (p KVPairs) Sort() {
 }
 
 // Reverse 倒序
+// 说明：历史实现未真正执行排序（sort.Reverse的返回值被丢弃），此处已修正为就地倒序
 func (p KVPairs) Reverse() {
-	sort.Reverse(p)
+	sort.Sort(sort.Reverse(p))
 }
 
 // Add 添加键值对
+// 注意：由于KVPairs是切片类型，且此方法使用值接收者，append的结果不会回写到调用方，
+// 因此此方法实际上不会修改原列表（历史遗留缺陷，为保证兼容性保留）。
+// 请使用 Append 方法，或直接使用 append(pairs, KVPair{K: k, V: v})。
+// Deprecated: 此方法无实际效果，请使用 Append。
 func (p KVPairs) Add(k, v string) {
 	p = append(p, KVPair{K: k, V: v})
+}
+
+// Append 添加一个键值对，并返回新的键值对列表（不会修改原列表）
+func (p KVPairs) Append(k, v string) KVPairs {
+	newPairs := make(KVPairs, 0, len(p)+1)
+	newPairs = append(newPairs, p...)
+	return append(newPairs, KVPair{K: k, V: v})
 }
 
 // FilterEmptyValueAndKeys 去掉列表中值为空以及指定字段的值
@@ -413,10 +425,16 @@ func (m M) SMVal(k string) []M {
 }
 
 // UrlValues 转换为url.Values
+// 说明：数据类型为切片时按多值处理，其它类型按单值处理；
+// 历史实现对于非切片类型的值会返回空字符串，此处已修正
 func (m M) UrlValues() url.Values {
 	uv := url.Values{}
 	for k, v := range m {
-		uv[k] = SVal(v).String()
+		if IsList(v) {
+			uv[k] = SVal(v).String()
+			continue
+		}
+		uv[k] = []string{String(v)}
 	}
 	return uv
 }
@@ -466,9 +484,16 @@ func (m M) IsArray(k string) bool {
 }
 
 // UrlQuery 将map转换为query string
+// 说明：数据类型为切片时会转换为重复的key（如 a=1&a=2），其它类型按单值处理
 func (m M) UrlQuery() string {
 	q := url.Values{}
 	for k, v := range m {
+		if IsList(v) {
+			for _, item := range SVal(v) {
+				q.Add(k, String(item))
+			}
+			continue
+		}
 		q.Set(k, String(v))
 	}
 	return q.Encode()
@@ -480,26 +505,48 @@ func (m M) Del(k string) {
 }
 
 // GetByPath 根据path获取值
+// path使用"."分隔，如 "a.b.c"；路径中的每一级都必须是一个map，否则返回false
+// 说明：此方法为只读操作，不会复制数据；历史实现每次调用都会深拷贝一份数据，性能较差
 func (m M) GetByPath(path string) (interface{}, bool) {
 	if path == "" {
 		return nil, false
 	}
-	src := M{}
-	src.Merge(m)
-	parts := strings.Split(path, ".")
-	for i, part := range parts {
-		isLast := i == len(parts)-1
-		if isLast {
-			return src.Get(part)
-		}
-		if v, ok := src.Get(part); ok {
-			if !IsMap(v) {
-				return nil, false
-			}
-			src = MVal(v)
-			continue
-		} else {
+	var current interface{} = m
+	for _, part := range strings.Split(path, ".") {
+		v, ok := mapIndex(current, part)
+		if !ok {
 			return nil, false
+		}
+		current = v
+	}
+	return current, true
+}
+
+// mapIndex 从map中获取指定key的值
+// 说明：支持任意value类型的map，也支持非string类型的key（会先转换成string再比较）
+func mapIndex(v interface{}, key string) (interface{}, bool) {
+	val := reflect.ValueOf(v)
+	for val.IsValid() && (val.Kind() == reflect.Ptr || val.Kind() == reflect.Interface) {
+		if val.IsNil() {
+			return nil, false
+		}
+		val = val.Elem()
+	}
+	if !val.IsValid() || val.Kind() != reflect.Map {
+		return nil, false
+	}
+	keyType := val.Type().Key()
+	if keyType.Kind() == reflect.String {
+		mv := val.MapIndex(reflect.ValueOf(key).Convert(keyType))
+		if !mv.IsValid() {
+			return nil, false
+		}
+		return mv.Interface(), true
+	}
+	// 非string类型的key，退化为遍历比较
+	for _, k := range val.MapKeys() {
+		if String(k.Interface()) == key {
+			return val.MapIndex(k).Interface(), true
 		}
 	}
 	return nil, false
@@ -654,6 +701,10 @@ func (s S) String() []string {
 }
 
 // Filter 过滤，过滤掉slice中的空值对象
+// 注意：由于S是切片类型，且此方法使用值接收者，方法内部对s的重新赋值不会影响调用方，
+// 因此此方法实际上不会修改原列表（历史遗留缺陷，为保证兼容性保留）。
+// 请使用 Filtered 方法获取过滤后的新列表。
+// Deprecated: 此方法无实际效果，请使用 Filtered。
 func (s S) Filter() {
 	newS := S{}
 	for _, v := range s {
@@ -663,6 +714,18 @@ func (s S) Filter() {
 		newS = append(newS, v)
 	}
 	s = newS
+}
+
+// Filtered 过滤，返回一个去除了空值对象的新列表，原列表不受影响
+func (s S) Filtered() S {
+	newS := make(S, 0, len(s))
+	for _, v := range s {
+		if IsEmpty(v) {
+			continue
+		}
+		newS = append(newS, v)
+	}
+	return newS
 }
 
 // Contains 包含检查
@@ -695,7 +758,8 @@ func (s S) Contains(v interface{}) bool {
 			}
 		}
 	default:
-		dstV := v.(string)
+		// 注意：此处不能直接使用 v.(string) 断言，否则传入非字符串类型时会panic
+		dstV := String(v)
 		for _, sv := range s {
 			if String(sv) == dstV {
 				return true
@@ -749,6 +813,8 @@ func NewXS(f func(interface{}) string) *XS {
 
 // Size 获取元素列表个数
 func (xs *XS) Size() int {
+	xs.mu.RLock()
+	defer xs.mu.RUnlock()
 	return len(xs.sliceData)
 }
 
@@ -792,31 +858,25 @@ func (xs *XS) SAdd(args ...interface{}) {
 }
 
 // Delete 删除指定值的元素
+// 说明：删除列表中所有key与被删除值相同的元素（key由创建XS时指定的keyFunc生成）；
+// 若元素不存在则不做任何操作。此方法为并发安全方法。
 func (xs *XS) Delete(arg interface{}) {
-	if !xs.Contains(arg) {
-		return
-	}
 	key := xs.keyFunc(arg)
 	xs.mu.Lock()
 	defer xs.mu.Unlock()
-	size := len(xs.sliceData)
-	for i := 0; i < size; i++ {
-		v := xs.sliceData[i]
-		k := xs.keyFunc(v)
-		if k == key {
-			// 删除元素
-			for j := i + 1; j < size; j++ {
-				xs.sliceData[j-1] = xs.sliceData[j]
-			}
-			size--
-			xs.mapData[k].count--
-			if xs.mapData[k].count == 0 {
-				// 元素已删除完毕
-				delete(xs.mapData, key)
-				break
-			}
-		}
+	if dc, ok := xs.mapData[key]; !ok || dc.count <= 0 {
+		return
 	}
+	// 重新构建切片，避免遗留脏数据
+	newSlice := make([]interface{}, 0, len(xs.sliceData))
+	for _, v := range xs.sliceData {
+		if xs.keyFunc(v) == key {
+			continue
+		}
+		newSlice = append(newSlice, v)
+	}
+	xs.sliceData = newSlice
+	delete(xs.mapData, key)
 }
 
 // Contains 检查是否包含某个元素
@@ -831,27 +891,39 @@ func (xs *XS) Contains(v interface{}) bool {
 }
 
 // Unique 对列表元素去重
+// 说明：返回结果按照元素首次加入的顺序排列，保证结果的稳定性
 func (xs *XS) Unique() []interface{} {
-	s := make([]interface{}, len(xs.mapData))
 	xs.mu.RLock()
 	defer xs.mu.RUnlock()
-	i := 0
-	for _, v := range xs.mapData {
-		s[i] = v.data
-		i++
+	s := make([]interface{}, 0, len(xs.mapData))
+	added := make(map[string]struct{}, len(xs.mapData))
+	for _, v := range xs.sliceData {
+		k := xs.keyFunc(v)
+		if _, ok := added[k]; ok {
+			continue
+		}
+		added[k] = struct{}{}
+		s = append(s, v)
 	}
 	return s
 }
 
 // UniqueFilter 对列表元素去重，并根据filter方法进行过滤
 // filter参数是一个字符串，此值是根据创建XS对象时指定的keyFunc得到的
+// 说明：返回结果按照元素首次加入的顺序排列，保证结果的稳定性
 func (xs *XS) UniqueFilter(f func(string) bool) []interface{} {
-	s := make([]interface{}, 0)
 	xs.mu.RLock()
 	defer xs.mu.RUnlock()
-	for k, v := range xs.mapData {
-		if ok := f(k); ok {
-			s = append(s, v.data)
+	s := make([]interface{}, 0, len(xs.mapData))
+	added := make(map[string]struct{}, len(xs.mapData))
+	for _, v := range xs.sliceData {
+		k := xs.keyFunc(v)
+		if _, ok := added[k]; ok {
+			continue
+		}
+		if f == nil || f(k) {
+			added[k] = struct{}{}
+			s = append(s, v)
 		}
 	}
 	return s
@@ -859,29 +931,57 @@ func (xs *XS) UniqueFilter(f func(string) bool) []interface{} {
 
 // Slice 获取切片(为了防止修改对象本身，需单独复制一个切片出来)
 func (xs *XS) Slice() []interface{} {
-	s := make([]interface{}, xs.Size())
+	xs.mu.RLock()
+	defer xs.mu.RUnlock()
+	s := make([]interface{}, len(xs.sliceData))
 	copy(s, xs.sliceData)
 	return s
 }
 
 // Intersect 计算给定切片与当前列表的交集
+// 说明：返回同时存在于当前列表与所有给定切片中的元素（按key去重，保留当前列表中的顺序）。
+// 若未传入任何切片，则返回当前列表去重后的结果。
 func (xs *XS) Intersect(arrs ...S) *XS {
-	// 创建一个新的XS对象
-	newXs := NewXS(xs.keyFunc)
-	newXs.Add(xs.Slice()...)
-	// 计算目标匹配次数
-	checkCount := len(arrs) + 1
-	for _, arr := range arrs {
-		newXs.Add(arr.Interface()...)
-	}
-	// 提取结果
 	outS := S{}
-	for _, dc := range newXs.mapData {
-		if dc.count == checkCount {
-			outS = append(outS, dc.data)
+	if len(arrs) == 0 {
+		return S(xs.Unique()).Extend(xs.keyFunc)
+	}
+	// 统计当前列表中每个key首次出现的值
+	order := make([]string, 0)
+	dataByKey := make(map[string]interface{})
+	for _, v := range xs.Unique() {
+		k := xs.keyFunc(v)
+		if _, ok := dataByKey[k]; ok {
+			continue
+		}
+		dataByKey[k] = v
+		order = append(order, k)
+	}
+	// 统计每个key在多少个集合中出现（每个集合内部先去重）
+	present := make(map[string]int, len(dataByKey))
+	for k := range dataByKey {
+		present[k] = 1
+	}
+	for _, arr := range arrs {
+		seen := make(map[string]struct{}, len(arr))
+		for _, v := range arr {
+			k := xs.keyFunc(v)
+			if _, ok := seen[k]; ok {
+				continue
+			}
+			seen[k] = struct{}{}
+			if _, ok := present[k]; ok {
+				present[k]++
+			}
 		}
 	}
-	// 返回结果
+	// 提取结果
+	target := len(arrs) + 1
+	for _, k := range order {
+		if present[k] == target {
+			outS = append(outS, dataByKey[k])
+		}
+	}
 	return outS.Extend(xs.keyFunc)
 }
 
@@ -910,28 +1010,39 @@ type TreeItem interface {
 
 // Tree 定义一个树结构
 type Tree struct {
-	items   map[string]TreeItem
-	keyMaps map[string]string
-	keys    []string // 用于记录输出顺序
+	items    map[string]TreeItem
+	keyMaps  map[string]string
+	keys     []string // 用于记录顶级节点的输出顺序
+	order    []string // 用于记录所有节点的加入顺序，保证构建结果的顺序稳定
+	rootKeys map[string]struct{}
 }
 
 // NewTree 创建一个树实例
 func NewTree() *Tree {
 	return &Tree{
-		items:   make(map[string]TreeItem, 0),
-		keyMaps: make(map[string]string, 0),
-		keys:    make([]string, 0),
+		items:    make(map[string]TreeItem, 0),
+		keyMaps:  make(map[string]string, 0),
+		keys:     make([]string, 0),
+		order:    make([]string, 0),
+		rootKeys: make(map[string]struct{}, 0),
 	}
 }
 
 // path 返回一个元素的层级路径关系
+// 说明：返回顺序为[父级, 父级的父级, ..., 根]，若父子关系中存在环，则在遇到重复key时终止，不会死循环
 func (tree *Tree) path(pk string) []string {
 	paths := []string{pk}
+	visited := map[string]struct{}{pk: {}}
 	for {
 		_pk, ok := tree.keyMaps[pk]
 		if !ok {
 			break
 		}
+		if _, exists := visited[_pk]; exists {
+			// 父级关系存在环，终止查找
+			break
+		}
+		visited[_pk] = struct{}{}
 		paths = append(paths, _pk)
 		pk = _pk
 	}
@@ -943,22 +1054,67 @@ func (tree *Tree) Add(items ...TreeItem) {
 	if len(items) == 0 {
 		return
 	}
+	if tree.items == nil {
+		tree.items = make(map[string]TreeItem)
+	}
+	if tree.keyMaps == nil {
+		tree.keyMaps = make(map[string]string)
+	}
+	if tree.rootKeys == nil {
+		tree.rootKeys = make(map[string]struct{})
+	}
 	// 第一次循环，将所有数据加入map
 	for _, item := range items {
+		if item == nil {
+			continue
+		}
 		k := item.Key()
 		pk := item.ParentKey()
+		if _, exists := tree.items[k]; !exists {
+			// 记录加入顺序，保证输出结果的顺序稳定
+			tree.order = append(tree.order, k)
+		}
 		tree.items[k] = item
 		if pk == "" {
-			tree.keys = append(tree.keys, k)
+			// 避免同一个顶级节点被重复加入
+			if _, exists := tree.rootKeys[k]; !exists {
+				tree.rootKeys[k] = struct{}{}
+				tree.keys = append(tree.keys, k)
+			}
 		} else {
 			tree.keyMaps[k] = pk
+			if _, exists := tree.rootKeys[k]; exists {
+				// 由顶级节点变为子节点，需要从顶级列表中移除
+				delete(tree.rootKeys, k)
+				tree.removeRootKey(k)
+			}
+		}
+	}
+}
+
+// removeRootKey 从顶级key列表中移除指定的key
+func (tree *Tree) removeRootKey(k string) {
+	for i, key := range tree.keys {
+		if key == k {
+			tree.keys = append(tree.keys[:i], tree.keys[i+1:]...)
+			return
 		}
 	}
 }
 
 // build 构造树
+// 说明：按元素加入的顺序处理，保证子节点的顺序稳定；父级不存在的元素会被忽略（从结果中移除）
 func (tree *Tree) build() {
-	for k, item := range tree.items {
+	// 记录已经挂载到树上的节点，避免同一个节点被重复挂载（例如先作为中间层级挂载，之后又被单独处理）
+	attached := make(map[string]struct{}, len(tree.items))
+	for _, k := range tree.order {
+		item, exists := tree.items[k]
+		if !exists {
+			continue
+		}
+		if _, ok := attached[k]; ok {
+			continue
+		}
 		pk := item.ParentKey()
 		// pk 为空表示为顶级
 		if pk == "" {
@@ -972,37 +1128,47 @@ func (tree *Tree) build() {
 		if !ok {
 			// root不存在，删除当前元素
 			delete(tree.items, k)
-			break
+			continue
 		}
-		if size < 2 {
+		if size == 1 {
+			// 直接挂到顶级节点下
 			root.AddChild(item)
-		} else {
-			parent := root
-			for i := size - 2; i >= 0; i-- {
-				current, ok := parent.GetChild(paths[i])
-				if !ok {
-					// 下级元素不存在，查看数据池（map）中是否存在该元素
-					if child, ok := tree.items[paths[i]]; ok {
-						parent.AddChild(child)
-						current = child
-					}
-				}
-				if current == nil {
-					// 下级元素不存在也没有找到
-					// 意味着当前元素的关系是不完整的（因为可以查找到路径，所以理论上不应该存在这种情况）
-					delete(tree.items, k)
+			delete(tree.items, k)
+			continue
+		}
+		// 从顶级节点逐级向下查找，补齐中间层级后挂载当前节点
+		parent := root
+		complete := true
+		for i := size - 2; i >= 0; i-- {
+			childKey := paths[i]
+			current, found := parent.GetChild(childKey)
+			if !found {
+				// 下级元素不存在，查看数据池（map）中是否存在该元素
+				child, inPool := tree.items[childKey]
+				if !inPool {
+					// 关系不完整，丢弃当前元素
+					complete = false
 					break
 				}
-				parent = current
-				// 找到直接上级
-				if i == 0 {
-					// 添加当前元素
-					current.AddChild(item)
-					delete(tree.items, k)
-					continue
-				}
+				parent.AddChild(child)
+				// 标记为已挂载，并从数据池中移除，避免后续重复挂载；
+				// 后续节点在查找该中间节点时，会通过父节点的GetChild找到它
+				attached[childKey] = struct{}{}
+				delete(tree.items, childKey)
+				current = child
 			}
+			if current == nil {
+				complete = false
+				break
+			}
+			parent = current
 		}
+		if !complete {
+			delete(tree.items, k)
+			continue
+		}
+		parent.AddChild(item)
+		delete(tree.items, k)
 	}
 }
 

@@ -117,7 +117,31 @@ func (c *Condition) Add(opts ...interface{}) {
             c.Add(opts[1:]...)
         }
     case *Condition:
-        c.conds = append(c.conds, cmd.(*Condition))
+        sub := cmd.(*Condition)
+        // 没有任何子条件的分组直接忽略，避免在Build时生成"1 != 1"这样的永假条件
+        if sub.Size() == 0 && sub.Error == nil {
+            if len(opts) > 1 {
+                c.Add(opts[1:]...)
+            }
+            return
+        }
+        // 子条件明确表示查询无结果时，AND逻辑下整个条件也无结果；OR逻辑下忽略该子条件即可
+        if sub.Error == ErrUselessQuery {
+            if c.logic == LogicAnd {
+                c.Error = ErrUselessQuery
+                return
+            }
+            if len(opts) > 1 {
+                c.Add(opts[1:]...)
+            }
+            return
+        }
+        // 其他错误向上传递，保证不会生成错误的查询条件
+        if sub.Error != nil {
+            c.Error = sub.Error
+            return
+        }
+        c.conds = append(c.conds, sub)
         if len(opts) > 1 {
             c.Add(opts[1:]...)
         }
@@ -130,21 +154,21 @@ func (c *Condition) Add(opts ...interface{}) {
     return
 }
 
+// keywordRegexp 关键字分隔用的正则表达式，预先编译，避免每次调用都重新编译
+var keywordRegexp = regexp.MustCompile(keywordPattern)
+
 // Match 进行关键字匹配查询
+// 说明：多个关键字之间按OR关系匹配；匹配值使用占位符（?）传参，不再拼接到SQL中，
+// 避免关键字中包含引号等特殊字符时导致SQL语法错误或注入风险
 func (c *Condition) Match(field, keyword string) {
     field = strings.TrimSpace(field)
     keyword = strings.TrimSpace(keyword)
     if field == "" || keyword == "" {
         return
     }
-    pattern, err := regexp.Compile(keywordPattern)
-    if err != nil {
-        c.AddError(err)
-        return
-    }
 
     // 分词
-    keywords := pattern.Split(keyword, -1)
+    keywords := keywordRegexp.Split(keyword, -1)
     newKeywords := make([]string, 0)
     for _, kwd := range keywords {
         kwd = strings.TrimSpace(kwd)
@@ -159,7 +183,7 @@ func (c *Condition) Match(field, keyword string) {
     // 构造条件
     cond := New(WithOrLogic())
     for _, kwd := range newKeywords {
-        cond.Add(fmt.Sprintf("%s LIKE '%%%s%%'", field, kwd))
+        cond.Add(fmt.Sprintf("%s LIKE ?", field), "%"+kwd+"%")
     }
     c.Add(cond)
 }
@@ -172,6 +196,10 @@ func (c *Condition) MultiMatch(fields []string, keyword string) {
     cond := New(WithOrLogic())
     for _, field := range fields {
         cond.Match(field, keyword)
+    }
+    // 若没有任何有效条件，则不需要加入分组，避免生成"1 != 1"这样的永假条件
+    if cond.Size() == 0 && cond.Error == nil {
+        return
     }
     c.Add(cond)
 }
@@ -227,7 +255,10 @@ func (c *Condition) buildWhere(field, op string, value interface{}) (*subcond, e
     if op == "" {
         op = "="
     }
-    field = strings.ReplaceAll(field, "`", "")
+    field = strings.TrimSpace(strings.ReplaceAll(field, "`", ""))
+    if field == "" {
+        return nil, ErrInvalidCondition
+    }
     switch op {
     case "=", "!=", ">", ">=", "<", "<=", "<>", "LIKE", "NOT LIKE", "IS", "IN", "NOT IN":
         cond.command = fmt.Sprintf("%s %s ?", field, op)
@@ -290,10 +321,8 @@ func (c *Condition) Build() (string, []interface{}) {
     }
     command := bytes.Buffer{}
     vals := make([]interface{}, 0)
-    for i, cond := range c.conds {
-        if i > 0 {
-            command.WriteString(logic)
-        }
+    written := 0
+    for _, cond := range c.conds {
         innerCmd := ""
         innerVals := make([]interface{}, 0)
         switch cond.(type) {
@@ -311,13 +340,24 @@ func (c *Condition) Build() (string, []interface{}) {
             // 暂未实现其它类型，故暂且跳过
             continue
         }
+        // 空条件直接跳过，避免产生悬空的逻辑运算符
+        if strings.TrimSpace(innerCmd) == "" {
+            continue
+        }
 
+        if written > 0 {
+            command.WriteString(logic)
+        }
         command.WriteString(" (")
         command.WriteString(innerCmd)
         command.WriteString(") ")
-        if innerVals != nil && len(innerVals) > 0 {
+        if len(innerVals) > 0 {
             vals = append(vals, innerVals...)
         }
+        written++
+    }
+    if written == 0 {
+        return "1 != 1", []interface{}{}
     }
     return command.String(), vals
 }

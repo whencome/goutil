@@ -117,6 +117,7 @@ func SM3(data string) string {
 }
 
 // ReverseByteSlice 将字节切片顺序反转
+// 注意：此方法会直接修改传入的切片（就地反转），并返回同一个切片
 func ReverseByteSlice(s []byte) []byte {
     for i, j := 0, len(s)-1; i < j; i, j = i+1, j-1 {
         s[i], s[j] = s[j], s[i] // 双指针交换元素

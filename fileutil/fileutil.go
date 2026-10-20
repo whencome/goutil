@@ -7,18 +7,24 @@ import (
 )
 
 // Exists 检查给定的文件名是否存在
+// 说明：历史实现在权限不足等非"文件不存在"的错误场景下返回true，容易造成误判，
+// 此处修正为仅在能够正常获取文件信息时返回true
 func Exists(fileName string) bool {
-	_, err := os.Stat(fileName)
-	if err != nil {
-		return !os.IsNotExist(err)
+	if fileName == "" {
+		return false
 	}
-	return true
+	_, err := os.Stat(fileName)
+	return err == nil
 }
 
+// DirExists 检查给定的路径是否存在，且是一个目录
 func DirExists(path string) bool {
+	if path == "" {
+		return false
+	}
 	fileInfo, err := os.Stat(path)
 	if err != nil {
-		return !os.IsNotExist(err)
+		return false
 	}
 	return fileInfo.IsDir()
 }
